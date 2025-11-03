@@ -191,21 +191,21 @@ def main_invoice_export():
             "Equipment Type": clean_text(cf.get("Invoiced_Product_for_Equipment_Type__c", "")),
 
             "Entity Owning Equipment": clean_text(invoiced_org.get("name", "")),
-            "Organization Type (Entity)": clean_text(invoiced_org.get("organization_type", "")),
-            "Region (Entity)": clean_text(invoiced_org.get("region", "")),
+            "Organization Type": clean_text(invoiced_org.get("organization_type", "")),
+            "Region": clean_text(invoiced_org.get("region", "")),
             "Site Name": clean_text(site_org.get("name", "")),
-            "Organization Type (Site)": clean_text(site_org.get("organization_type", "")),
-            "Region (Site)": clean_text(site_org.get("region", "")),
+            "Organization Type_1": clean_text(site_org.get("organization_type", "")),
+            "Region_2": clean_text(site_org.get("region", "")),
 
             "Channel Partner": clean_text(channel_partner_org.get("name", "")),
-            "Organization Type (Channel Partner)": clean_text(channel_partner_org.get("organization_type", "")),
-            "Region (Channel Partner)": clean_text(channel_partner_org.get("region", "")),
+            "Organization Type_3": clean_text(channel_partner_org.get("organization_type", "")),
+            "Region_4": clean_text(channel_partner_org.get("region", "")),
 
             "Invoice #": clean_text(cf.get("Invoice_Num__c", "")),
             "Invoiced Amount in CAD": clean_text(cf.get("Invoiced_Amount_in_CAD__c", "")),
         })
     
-    output_file = os.path.join("/tmp", "invoice_records.xlsx") 
+    output_file = os.path.join("/tmp", "Invoice History.xlsx") 
     
     df = pd.DataFrame(rows)
     df = df.drop_duplicates()

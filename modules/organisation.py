@@ -93,30 +93,7 @@ def fetch_organisations():
         logging.info(f"Organisations fetched so far: {len(orgs)}")
     return orgs
 
-# ==============================
-#  Get Focus Organization Status for one org
-# ==============================
-def get_follow_status(org_id):
-    resp = safe_get(f"{BASE_URL}/Organisations/{org_id}/Follow")
-    if resp:
-        return resp.json().get("FOLLOWING", False)
-    return False
-
-# ==============================
-#  Fetch follow status in parallel
-# ==============================
-def fetch_all_follows(orgs, max_workers=20):
-    results = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_id = {executor.submit(get_follow_status, org["ORGANISATION_ID"]): org["ORGANISATION_ID"] for org in orgs}
-        for future in as_completed(future_to_id):
-            org_id = future_to_id[future]
-            try:
-                results[org_id] = future.result()
-            except Exception as e:
-                logging.error(f"Error fetching follow status for {org_id}: {e}")
-                results[org_id] = False
-    return results
+ 
 
 # ==============================
 #  Utility: Clean text
@@ -126,21 +103,32 @@ def clean_text(value):
         return value.replace("\r", " ").replace("\n", " ").strip()
     return value
 
+from datetime import datetime
+
+def format_date_only(date_str):
+    if not date_str:
+        return ""
+    try:
+        # Input format: "2022-09-23 03:42:25"
+        dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+        return dt.strftime("%m/%d/%Y")  # Output: 10/27/2025
+    except ValueError:
+        return date_str 
 # ==============================
 #  Transform API data to CSV rows
 # ==============================
-def transform_organisations(orgs, follow_statuses):
+def transform_organisations(orgs):
     rows = []
     for org in orgs:
         cf = {c["FIELD_NAME"]: c.get("FIELD_VALUE") for c in org.get("CUSTOMFIELDS", [])}
         linked_contacts_count = sum(1 for l in org.get("LINKS", []) if l.get("LINK_OBJECT_NAME") == "Contact")
         org_id = org.get("ORGANISATION_ID")
-        focus_org = follow_statuses.get(org_id, False)
+        focus_org = bool(cf.get("Active__c", False))
 
         rows.append({
             "Organization ID": org_id,
             "Organization Name": clean_text(org.get("ORGANISATION_NAME", "")),
-            "Date Created": org.get("DATE_CREATED_UTC"),
+            "Date Created": format_date_only(org.get("DATE_CREATED_UTC")),
             "Linked Contacts Count": linked_contacts_count,
             "Focus Organization": focus_org,
             "Call Frequency": cf.get("Call_Frequency__c", ""),
@@ -149,15 +137,17 @@ def transform_organisations(orgs, follow_statuses):
             "Customer Type": cf.get("Sales_Methodology_Type__c", ""),
             "Organization Type": cf.get("Organization_Type__c", ""),
             "Billing Country": org.get("ADDRESS_BILLING_COUNTRY", ""),
-            "Organization Name Clean": clean_text(org.get("ORGANISATION_NAME", "")).lower(),
-            "DateOnlyCheck": org.get("DATE_CREATED_UTC", "").split(" ")[0] if org.get("DATE_CREATED_UTC") else "",
-            "Cumulative Active Focus Org": ""
+            # "Organization Name Clean": clean_text(org.get("ORGANISATION_NAME", "")).lower(),
+            # "DateOnlyCheck": org.get("DATE_CREATED_UTC", "").split(" ")[0] if org.get("DATE_CREATED_UTC") else "",
+            # "Cumulative Active Focus Org": ""
         })
     return rows
 
 # ==============================
 #  Main Execution Function
 # ==============================
+
+    
 def main_organisation():
     logging.info("Starting Organisation export process...")
     organisations = fetch_organisations()
@@ -168,9 +158,9 @@ def main_organisation():
         return None
 
     logging.info("Fetching Focus Organization status in parallel...")
-    follow_statuses = fetch_all_follows(organisations, max_workers=20)
+    
 
-    rows = transform_organisations(organisations, follow_statuses)
+    rows = transform_organisations(organisations)
 
     # Double-check after transformation
     if not rows:
@@ -178,7 +168,7 @@ def main_organisation():
         return None
 
      
-    output_file = os.path.join("/tmp", "organisations.xlsx")
+    output_file = os.path.join("/tmp", "Organisations BRP.xlsx")
 
     df = pd.DataFrame(rows)
     df = df.drop_duplicates()

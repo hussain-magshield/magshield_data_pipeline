@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import yaml
 import os
 import logging
-
+from datetime import datetime
 # ==============================
 #  Logging Configuration
 # ==============================
@@ -171,9 +171,21 @@ def prefetch_related_data(quotations):
 
     return opportunity_cache, organisation_cache, contact_cache
 
+
+def format_date(date_str):
+    if not date_str:
+        return "" 
+    try: 
+        dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+        return dt.strftime("%d-%b-%y %-I:%M %p") # e.g. 25-Aug-25 8:41 PM 
+    except ValueError: 
+        return date_str
 # ==============================
 #  Main Execution
 # ==============================
+
+
+ 
 def main_quote():
     quotations = fetch_all_quotations()
 
@@ -190,34 +202,38 @@ def main_quote():
         cf = {c["FIELD_NAME"]: c.get("FIELD_VALUE") for c in q.get("CUSTOMFIELDS", [])}
 
         row = {
+           
             "Record ID": q.get("QUOTE_ID"),
-            "Quote Number": q.get("QUOTATION_NUMBER"),
-            "Status": q.get("QUOTE_STATUS"),
-            "Quote Name": q.get("QUOTATION_NAME"),
-            "Subtotal": q.get("SUBTOTAL"),
-            "Total Price": q.get("TOTAL_PRICE"),
+            "Quote Number": q.get("QUOTATION_NUMBER"), 
+            "Status": q.get("QUOTE_STATUS"), "Quote Name": q.get("QUOTATION_NAME"),
+            "Subtotal": q.get("SUBTOTAL"), "Total Price": q.get("TOTAL_PRICE"), 
             "Expiration Date": q.get("QUOTATION_EXPIRATION_DATE"),
-            "GST %": cf.get("GST_Percentage__c", ""),
-            "Tax": cf.get("Tax__c", ""),
+            "GST %": cf.get("GST_Percentage__c", ""), "Tax": cf.get("Tax__c", ""), 
             "Grand Total": cf.get("Grand_Total__c", q.get("GRAND_TOTAL", "")),
-            "Trade Tariff": cf.get("Trade_Tariff__c", ""),
-            "Grand Total w/ Tariff": cf.get("Grand_Total_Tariff__c", ""),
-            "MagShield Selling Entity": cf.get("MagShield_Selling_Entity__c", ""),
-            "Sales Person": contact_cache.get(cf.get("Sales_Person__c"), ""),
+            "Trade Tariff": cf.get("Trade_Tariff__c", ""), "Grand Total w/ Tariff": cf.get("Grand_Total_Tariff__c", ""),
+            "MagShield Selling Entity": cf.get("MagShield_Selling_Entity__c", ""), 
+            "Sales Person Id": str(cf.get("Sales_Person__c", "")),
+            "Sales Person": contact_cache.get(cf.get("Sales_Person__c"), ""), 
             "Billing Country": q.get("ADDRESS_BILLING_COUNTRY"),
-            "Currency": q.get("QUOTATION_CURRENCY_CODE"),
-            "Discount": q.get("DISCOUNT"),
+            "Currency": q.get("QUOTATION_CURRENCY_CODE"), 
+            "Discount": q.get("DISCOUNT"), 
             "Organization Name": q.get("ORGANISATION_NAME") or organisation_cache.get(q.get("ORGANISATION_ID"), ""),
-            "Organization ID": q.get("ORGANISATION_ID"),
-            "Date Created": q.get("DATE_CREATED_UTC"),
-            "Date Updated": q.get("DATE_UPDATED_UTC"),
+            "Record ID_1": q.get("ORGANISATION_ID"),
+            # "Date Created": q.get("DATE_CREATED_UTC"),
+            # # "Date Updated": q.get("DATE_UPDATED_UTC"),
+            "Date Created": format_date(q.get("DATE_CREATED_UTC")), 
+            "Date Updated": format_date(q.get("DATE_UPDATED_UTC")),
             "Opportunity Name": q.get("OPPORTUNITY_NAME") or opportunity_cache.get(q.get("OPPORTUNITY_ID"), ""),
-            "Opportunity ID": q.get("OPPORTUNITY_ID"),
+            "Shipping_Terms__c": cf.get("Shipping_Terms__c", ""),
+            "ADDRESS_SHIPPING_COUNTRY": q.get("ADDRESS_SHIPPING_COUNTRY", "")
+
+            
+            # "Opportunity ID": q.get("OPPORTUNITY_ID"),
         }
         rows.append(row)
 
      
-    output_file = os.path.join("/tmp", "quotes_export.xlsx")
+    output_file = os.path.join("/tmp", "Quotes.xlsx")
     if rows:
         df = pd.DataFrame(rows)
         df = df.drop_duplicates()

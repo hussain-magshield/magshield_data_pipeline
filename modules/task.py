@@ -186,6 +186,19 @@ def parallel_lookups(cat_ids, user_ids, contact_ids, lead_ids, opp_ids, org_ids,
 # ==============================
 #  Main Function
 # ==============================
+from datetime import datetime
+
+def format_date_only(date_str):
+    """Convert 'YYYY-MM-DD HH:MM:SS' → 'MM/DD/YYYY'"""
+    if not date_str:
+        return ""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+        return dt.strftime("%m/%d/%Y")
+    except ValueError:
+        return date_str  # 
+    
+    
 def main_task():
     logging.info("Starting Task Export...")
     tasks = fetch_all_tasks()
@@ -241,11 +254,11 @@ def main_task():
             "Priority": t.get("PRIORITY"),
             "Owner Name": user_cache.get(str(t.get("OWNER_USER_ID")), ""),
             "Assigned To Team": t.get("ASSIGNED_TEAM_ID"),
-            "Date Assigned": t.get("ASSIGNED_DATE_UTC"),
-            "Date Created": t.get("DATE_CREATED_UTC"),
-            "Date Reminder": t.get("REMINDER_DATE_UTC"),
-            "Date Due": t.get("DUE_DATE"),
-            "Date Completed": t.get("COMPLETED_DATE_UTC"),
+            "Date Assigned": format_date_only(t.get("ASSIGNED_DATE_UTC")),
+            "Date Created": format_date_only(t.get("DATE_CREATED_UTC")),
+            "Date Reminder": format_date_only(t.get("REMINDER_DATE_UTC")),
+            "Date Due": format_date_only(t.get("DUE_DATE")),
+            "Date Completed": format_date_only(t.get("COMPLETED_DATE_UTC")),
             "Linked Contact": linked_contact,
             "Linked Lead": linked_lead,
             "Linked Opportunity": linked_opportunity,
@@ -255,7 +268,7 @@ def main_task():
         })
 
      
-    output_file = os.path.join("/tmp", "task.xlsx")
+    output_file = os.path.join("/tmp", "Tasks.xlsx")
     if rows:
         df = pd.DataFrame(rows)
         df = df.drop_duplicates()

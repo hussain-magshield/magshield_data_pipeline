@@ -215,7 +215,7 @@ def main_opportunity():
         def base_row(pid=""):
             return {
                 "Opportunity ID": opp_id_str,
-                "ORGANISATION_ID": org_id,
+                # "ORGANISATION_ID": org_id,
                 "Opportunity Name": clean_text(opp.get("OPPORTUNITY_NAME", "")),
                 "Entity Owning Equipment": clean_text(organisations.get(entity_org_id, "")),
                 "Site Name": clean_text(site_name),
@@ -235,11 +235,11 @@ def main_opportunity():
                 "Won": "TRUE" if opp.get("OPPORTUNITY_STATE") == "WON" else "FALSE",
                 "Trial?": str(cf.get("Trial__c", False)).upper(),
                 "Opportunity Product Quantity": cf.get("Quantity__c", ""),
-                "Closed Date Formatted": opp.get("FORECAST_CLOSE_DATE"),
+                # "Closed Date Formatted": opp.get("FORECAST_CLOSE_DATE"),
                 "Pricebook Name": clean_text(pricebooks.get(pricebook_id, "")),
                 "Opportunity Owner": clean_text(users.get(owner_id, "")),
                 "Product Family": clean_text(products.get(pid, "")) if pid else "",
-                "Archived Field ": clean_text(cf.get("Product_Type__c", "")),
+                "Archived Field - Product Type ": clean_text(cf.get("Product_Type__c", "")),
                 "Product ID": pid,
                 "Organization Name": clean_text(organisations.get(org_id, "")),
                 "Owner Name": clean_text(users.get(owner_id, "").split(";")[1] if users.get(owner_id) else ""),
@@ -255,7 +255,7 @@ def main_opportunity():
             rows.append(base_row(""))
 
      
-    output_file = os.path.join("/tmp", "opportunities.xlsx")
+    output_file = os.path.join("/tmp", "Opportunities BPR.xlsx")
     
     if rows:
         df = pd.DataFrame(rows)

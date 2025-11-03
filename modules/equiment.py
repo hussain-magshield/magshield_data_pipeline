@@ -153,20 +153,21 @@ def main_equipment_export():
             "Owner": clean_text(owner_name),
             "Date Created": date_created,
             "Date Updated": date_updated,
-            "Record ID (Entity Owning Equipment)": entity_org_id,
+            "Record ID_1": entity_org_id,
             "Entity Owning Equipment": clean_text(org_lookup.get(entity_org_id, "")),
-            "Organization Owner (Entity)": format_org_owner_site(owner_name),
-            "Record ID (Site)": site_org_id,
+            "Organization": format_org_owner_site(owner_name),
+            "Record ID_2": site_org_id,
             "Site Name": clean_text(org_lookup.get(site_org_id, "")),
-            "Organization Owner (Site)": format_org_owner_site(owner_name),
+            "Organization Owner_3": format_org_owner_site(owner_name),
             "Equipment Type": clean_text(cf.get("Equipment_Type_Equipment__c", "")),
             "Equipment Make": clean_text(cf.get("Equipment_Make_Equipment__c", "")),
             "Equipment Model": clean_text(cf.get("Equipment_Model_Equipment__c", "")),
             "Equipment Quantity": cf.get("Equipment_Quantity_Equipment__c", ""),
             "Serial Number Notes": clean_text(cf.get("Serial_Number_Notes__c", "")),
+            "Last_Date_of_Equipment_Details_Confirmed__c": cf.get("Last_Date_of_Equipment_Details_Confirmed__c", ""),
         })
 
-    output_file = os.path.join("/tmp", "equipment_records.xlsx")
+    output_file = os.path.join("/tmp", "Equipment.xlsx")
    
     df = pd.DataFrame(rows)
     df = df.drop_duplicates()
