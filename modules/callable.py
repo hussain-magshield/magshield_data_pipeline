@@ -10,8 +10,8 @@ from modules.equiment import main_equipment_export
 from modules.invoice import main_invoice_export
 
 share_links = [
-    # "https://magshield.sharepoint.com/sites/Magshield/Shared%20Documents/Forms/AllItems.aspx?FolderCTID=0x012000E50C8FA1B0C81A4C9C26E6E96200FCDC&id=%2Fsites%2FMagshield%2FShared%20Documents%2FMagShield%20General%20Drive%2F10%2E%20Systems%2F10%2E5%20PowerBI%2FData%20Feeding%20Reports",
-    "https://magshield-my.sharepoint.com/:f:/p/hussainm/Emqg670lFK5OuYdv5YBNTawBBou1_WCXMnJo3ouz73KZ0g"
+    
+    "https://magshield.sharepoint.com/:f:/s/Magshield/Eggs91M7-Y1Hqf_OGIpomVcBmsFhqwPKloOVrdk0RgveMg?e=Pv83Mu"
 ]
 
 def upload_if_file_exists(file_path, label):
