@@ -1,0 +1,8 @@
+testing
+env
+env.yaml
+.gitignore
+task_export.log
+local.settings.json
+azlogin.txt
+.python_packages
