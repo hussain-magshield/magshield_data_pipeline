@@ -8,6 +8,7 @@ from modules.organisation import main_organisation
 from modules.opportunity import main_opportunity
 from modules.equiment import main_equipment_export
 from modules.invoice import main_invoice_export
+from modules.users import main_users
 
 share_links = [
     
@@ -55,3 +56,9 @@ def final3():
     
     invoice_file = main_invoice_export()
     upload_if_file_exists(invoice_file, "Invoice")
+    
+    
+    users_file = main_users()
+    upload_if_file_exists(users_file, "Users")
+    
+    
