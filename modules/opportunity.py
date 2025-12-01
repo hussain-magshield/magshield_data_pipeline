@@ -172,11 +172,29 @@ def fetch_site_name(opportunity_id, main_org_id, orgs):
 def clean_text(v):
     return v.replace("\r", " ").replace("\n", " ").strip() if isinstance(v, str) else v
 
+def build_invoice_lookup():
+    invoices = fetch_all_paged("Invoice_History__c")
+    lookup = {}
+
+    for inv in invoices:
+        cf = {c["FIELD_NAME"]: c.get("FIELD_VALUE") for c in inv.get("CUSTOMFIELDS", [])}
+        org_id = str(cf.get("Invoiced_Organization__c", ""))
+
+        row = {
+            "Invoice_Num__c": cf.get("Invoice_Num__c", ""),
+            "PO_Number__c": cf.get("PO_Number__c", "")
+        }
+
+        lookup.setdefault(org_id, []).append(row)
+
+    return lookup
+
 # ==============================
 #  Main Execution Function
 # ==============================
 def main_opportunity():
     organisations, users, pricebooks, products, state_reason_map = build_lookups()
+    invoice_lookup = build_invoice_lookup()
     opportunity_product_map = build_opp_product_map()
     opportunities = fetch_all_paged("Opportunities")
 
@@ -211,7 +229,12 @@ def main_opportunity():
         current_stage = stage_name_map.get(stage_id, "")
         product_ids = opportunity_product_map.get(opp_id_str, [])
         state_reason = state_reason_map.get(str(opp.get("STATE_REASON_ID") or ""), "")
+        invoice_data = invoice_lookup.get(org_id, [])
+        invoice_row = invoice_data[0] if invoice_data else {}
 
+        invoice_num = clean_text(invoice_row.get("Invoice_Num__c", ""))
+        po_number = clean_text(invoice_row.get("PO_Number__c", ""))
+         
         def base_row(pid=""):
             return {
                 "Opportunity ID": opp_id_str,
@@ -246,6 +269,8 @@ def main_opportunity():
                 "Channel Type": clean_text(cf.get("Channel_Type__c", "")),
                 "GAP Strategy": clean_text(cf.get("GAP_Strategy__c", "")),
                 "GAP Current State": clean_text(cf.get("Current_State__c", "")),
+                "Invoice Number": invoice_num,
+                "Purchase Order": po_number
             }
 
         if product_ids:
