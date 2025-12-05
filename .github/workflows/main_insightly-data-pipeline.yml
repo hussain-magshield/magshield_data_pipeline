@@ -66,10 +66,17 @@ jobs:
           rm release.zip
         
       - name: 'Deploy to Azure Functions'
+        env:
+          INSIGHTLY_API_KEY: ${{ secrets.INSIGHTLY_API_KEY }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          TENANT_ID: ${{ secrets.TENANT_ID }}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+          
         uses: Azure/functions-action@v1
         id: deploy-to-function
         with:
           app-name: 'insightly-data-pipeline'
           slot-name: 'Production'
           package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_B0F4428D615B4C628633A9FE073380B6 }}
