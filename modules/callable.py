@@ -9,6 +9,7 @@ from modules.opportunity import main_opportunity
 from modules.equiment import main_equipment_export
 from modules.invoice import main_invoice_export
 from modules.users import main_users
+from modules.opportunity_stage import main_opp_stage    
 
 share_links = [
     
@@ -60,5 +61,8 @@ def final3():
     
     users_file = main_users()
     upload_if_file_exists(users_file, "Users")
+    
+    opportunity_stage = main_opp_stage()        
+    upload_if_file_exists(opportunity_stage, "Opportunity Stage")
     
     
