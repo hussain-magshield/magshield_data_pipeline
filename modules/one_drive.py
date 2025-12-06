@@ -5,56 +5,7 @@ import requests
 import yaml
 import logging
 
-# ==========================
-# 🔐 Load ENV from env.yaml
-# ==========================
-def load_env_config(file_path="env.yaml"):
-    """
-    Local development ke liye env.yaml read karega
-    Production (Azure) mein env variable se read karega
-    """
-    config = {}
-    if os.path.exists(file_path):
-        with open(file_path, "r") as f:
-            config = yaml.safe_load(f) or {}
-
-    for key in ["INSIGHTLY_API_KEY", "CLIENT_ID", "TENANT_ID", "REFRESH_TOKEN"]:
-        if os.environ.get(key):
-            config[key] = os.environ.get(key)
-    return config
-
-env = load_env_config()
-
-API_KEY = env.get("INSIGHTLY_API_KEY")
-CLIENT_ID = env.get("CLIENT_ID")
-TENANT_ID = env.get("TENANT_ID")
-REFRESH_TOKEN = env.get("REFRESH_TOKEN")
-# USERNAME = env.get("USERNAME")
-
-AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPES = ["Files.ReadWrite.All", "Sites.Read.All", "User.Read"]
-
-def get_access_token():
-    app = msal.PublicClientApplication(
-        CLIENT_ID,
-        authority=f"https://login.microsoftonline.com/{TENANT_ID}"
-    )
-
-    result = app.acquire_token_by_refresh_token(
-        REFRESH_TOKEN,
-        scopes=SCOPES
-    )
-
-    if "access_token" in result:
-        logging.info("New access token acquired")
-        return result["access_token"]
-    else:
-        logging.error(f"Failed to acquire access token: {result.get('error_description')}")
-        return None
-
-# ==========================
-# 🌐 Resolve Shared Link
-# ==========================
+ 
 def get_driveitem_from_share_url(headers, share_url):
     b = base64.b64encode(share_url.encode("utf-8")).decode("utf-8")
     b = b.rstrip("=").replace("/", "_").replace("+", "-")
@@ -90,8 +41,8 @@ def replace_file_on_onedrive(headers, drive_id, item_id, local_file_path):
 # ==========================
 # 🚀 Main Drive Function
 # ==========================
-def main_drive(share_links, upload_file=None):
-    token = get_access_token()
+def main_drive(share_links,token, upload_file=None):
+    # token = get_access_token()
     if not token:
         logging.error("Access token not acquired. Aborting upload.")
         return

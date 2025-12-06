@@ -53,42 +53,42 @@ RENAMED_FILE = "Opp Stage Duration.xlsx"
 
  
 
-def get_access_token_via_refresh_token(refresh_token):
-    """
-    Refresh token ka use karke naya access token acquire karta hai.
-    SSL error ko handle karne ke liye session.verify=False use kiya gaya hai.
-    """
+# def get_access_token_via_refresh_token(refresh_token):
+#     """
+#     Refresh token ka use karke naya access token acquire karta hai.
+#     SSL error ko handle karne ke liye session.verify=False use kiya gaya hai.
+#     """
     
    
-    session = requests.Session()
+#     session = requests.Session()
      
-    requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
-    session.verify = False 
+#     requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
+#     session.verify = False 
 
     
-    app = msal.PublicClientApplication(
-        CLIENT_ID, 
-        authority=AUTHORITY,
-        http_client=session   
-    ) 
+#     app = msal.PublicClientApplication(
+#         CLIENT_ID, 
+#         authority=AUTHORITY,
+#         http_client=session   
+#     ) 
     
-    logging.info("Acquiring new access token using refresh token...")
+#     logging.info("Acquiring new access token using refresh token...")
     
-    try:
-        result = app.acquire_token_by_refresh_token(
-            refresh_token,
-            scopes=SCOPE 
-        )
-    except Exception as e:
-        logging.critical(f"MSAL Exception during token acquisition: {e}")
-        raise
+#     try:
+#         result = app.acquire_token_by_refresh_token(
+#             refresh_token,
+#             scopes=SCOPE 
+#         )
+#     except Exception as e:
+#         logging.critical(f"MSAL Exception during token acquisition: {e}")
+#         raise
 
-    if 'access_token' in result:
-        # Naya: Token ke saath session object bhi return karein
-        return result['access_token'], session 
-    else:
-        logging.error(f"Authentication failed: {result.get('error_description', 'Unknown error')}")
-        raise Exception("Authentication failed.")
+#     if 'access_token' in result:
+#         # Naya: Token ke saath session object bhi return karein
+#         return result['access_token'], session 
+#     else:
+#         logging.error(f"Authentication failed: {result.get('error_description', 'Unknown error')}")
+#         raise Exception("Authentication failed.")
 
  
 def process_zip_data(file_content, original_filename, renamed_file_name):
@@ -284,9 +284,9 @@ def download_insightly_report(token,session):
     return final_report_path    
 
  
-def main_opp_stage():
+def main_opp_stage(access_token, session):
     
-    access_token, session = get_access_token_via_refresh_token(REFRESH_TOKEN)
+    # access_token, session = get_access_token_via_refresh_token(REFRESH_TOKEN)
     data=download_insightly_report(access_token,session)     
     logging.info(f"Final downloaded report path: {data}") 
     return data  

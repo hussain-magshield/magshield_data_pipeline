@@ -1,9 +1,10 @@
 import json
 import azure.functions as func
-from modules.callable import final2
+from modules.callable import final2,init_token_once
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     try:
+        init_token_once()
         final2()
         body = json.dumps({"status": "success", "message": " Function executed successfully"})
         return func.HttpResponse(body, status_code=200, mimetype="application/json")
