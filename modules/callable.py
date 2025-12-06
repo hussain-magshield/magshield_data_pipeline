@@ -60,11 +60,13 @@ def final3():
     users_file = main_users()
     upload_if_file_exists(users_file, "Users")
     
-    opportunity_stage = main_opp_stage()        
-    upload_if_file_exists(opportunity_stage, "Opportunity Stage")
+   
     
     
 def final4():    
     task_file = main_task()
     upload_if_file_exists(task_file, "Task")
-    
+
+def final5():
+    opportunity_stage = main_opp_stage()        
+    upload_if_file_exists(opportunity_stage, "Opportunity Stage")

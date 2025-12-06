@@ -75,8 +75,14 @@ def fetch_all_paged(endpoint, top=500):
     records = []
     resp = safe_get(f"{BASE_URL}/{endpoint}", params={"top": 1, "count_total": "true"})
     if not resp:
+        logging.warning(f"Failed to get total count for {endpoint}")
         return records
+
     total_count = int(resp.headers.get("X-Total-Count", 0))
+    if total_count == 0:
+        logging.info(f"{endpoint}: no records found")
+        return records
+
     total_pages = (total_count // top) + (1 if total_count % top != 0 else 0)
     logging.info(f"{endpoint}: {total_count} records, {total_pages} pages")
 
@@ -85,26 +91,40 @@ def fetch_all_paged(endpoint, top=500):
         r = safe_get(f"{BASE_URL}/{endpoint}", params={"skip": skip, "top": top})
         return r.json() if r and r.status_code == 200 else []
 
-    with ThreadPoolExecutor(max_workers=10) as ex:
+    # Slightly higher concurrency – API ko dhyaan se use karna hai, but you wanted speed
+    max_workers = min(20, total_pages or 1)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futures = {ex.submit(fetch_page, i): i for i in range(total_pages)}
         for f in as_completed(futures):
             data = f.result()
             if data:
                 records.extend(data)
+
     logging.info(f"{endpoint}: fetched {len(records)} records")
     return records
 
 # ==============================
-#  Build Lookup Tables
+#  Build Lookup Tables  (bulk, no per-row HTTP calls)
 # ==============================
 def build_lookups():
-    with ThreadPoolExecutor(max_workers=5) as ex:
+    """
+    Bulk fetches for:
+      - Organisations
+      - Users
+      - Pricebook
+      - Product
+      - OpportunityStateReasons
+      - PipelineStages  (NEW: to avoid per-stage HTTP calls)
+    """
+    with ThreadPoolExecutor(max_workers=6) as ex:
         futures = {
             "orgs": ex.submit(fetch_all_paged, "Organisations"),
             "users": ex.submit(fetch_all_paged, "Users"),
             "pricebook": ex.submit(fetch_all_paged, "Pricebook"),
             "product": ex.submit(fetch_all_paged, "Product"),
             "state_reason": ex.submit(fetch_all_paged, "OpportunityStateReasons"),
+            "stages": ex.submit(fetch_all_paged, "PipelineStages"),
         }
         results = {k: v.result() for k, v in futures.items()}
 
@@ -116,7 +136,7 @@ def build_lookups():
 
     # Users
     users = {
-        str(u["USER_ID"]): f'{u.get("USER_ID")};{u.get("FIRST_NAME","")} {u.get("LAST_NAME","")}'
+        str(u["USER_ID"]): f'{u.get("USER_ID")};{u.get("FIRST_NAME", "")} {u.get("LAST_NAME", "")}'
         for u in results["users"]
     }
 
@@ -143,31 +163,35 @@ def build_lookups():
         for r in results["state_reason"]
     }
 
-    return orgs, users, pricebooks, products_family, product_codes, state_reason_map
+    # Pipeline Stages (NEW: bulk instead of per-stage calls)
+    stage_name_map = {
+        str(s["STAGE_ID"]): s.get("STAGE_NAME", "") or ""
+        for s in results["stages"]
+    }
+
+    return orgs, users, pricebooks, products_family, product_codes, state_reason_map, stage_name_map
 
 # ==============================
-#  Pricebook Entry Cache
+#  PricebookEntry bulk map (NEW)
 # ==============================
-pricebook_entry_cache = {}
-def get_product_id_from_pricebook_entry(entry_id):
-    if not entry_id:
-        return None
-    entry_id = str(entry_id)
-    if entry_id in pricebook_entry_cache:
-        return pricebook_entry_cache[entry_id]
-    r = safe_get(f"{BASE_URL}/PricebookEntry/{entry_id}")
-    if r and r.status_code == 200:
-        pid = r.json().get("PRODUCT_ID")
-        if pid:
-            pid_str = str(pid)
-            pricebook_entry_cache[entry_id] = pid_str
-            return pid_str
-    return None
+def build_pricebook_entry_map():
+    """
+    Bulk fetch:
+      PricebookEntry -> PRODUCT_ID
+    Instead of calling /PricebookEntry/{id} per line item.
+    """
+    entries = fetch_all_paged("PricebookEntry")
+    mapping = {
+        str(e["PRICEBOOK_ENTRY_ID"]): str(e.get("PRODUCT_ID", "")) if e.get("PRODUCT_ID") else ""
+        for e in entries
+    }
+    logging.info(f"Built pricebook entry map for {len(mapping)} entries")
+    return mapping
 
 # ==============================
-#  Build Opportunity Product Maps
+#  Build Opportunity Product Maps (uses bulk pricebook entry map)
 # ==============================
-def build_opp_product_maps(product_codes):
+def build_opp_product_maps(product_codes, pricebook_entry_map):
     """
     Returns:
       opp_product_ids   : { OPPORTUNITY_ID: [PRODUCT_ID, ...] }
@@ -181,12 +205,16 @@ def build_opp_product_maps(product_codes):
     def process_line_item(li):
         pricebook_entry_id = li.get("PRICEBOOK_ENTRY_ID")
         opp_id = li.get("OPPORTUNITY_ID")
+
         if not opp_id or not pricebook_entry_id:
-            return None
+            return
+
         opp_id_str = str(opp_id)
-        prod_id = get_product_id_from_pricebook_entry(pricebook_entry_id)
+        entry_id_str = str(pricebook_entry_id)
+
+        prod_id = pricebook_entry_map.get(entry_id_str)
         if not prod_id:
-            return None
+            return
 
         # Add PRODUCT_ID
         opp_product_ids.setdefault(opp_id_str, set()).add(prod_id)
@@ -196,9 +224,7 @@ def build_opp_product_maps(product_codes):
         if sku:
             opp_product_codes.setdefault(opp_id_str, set()).add(sku)
 
-        return None
-
-    with ThreadPoolExecutor(max_workers=10) as ex:
+    with ThreadPoolExecutor(max_workers=20) as ex:
         futures = [ex.submit(process_line_item, li) for li in line_items]
         for _ in as_completed(futures):
             pass
@@ -211,35 +237,33 @@ def build_opp_product_maps(product_codes):
     return opp_product_ids, opp_product_codes
 
 # ==============================
-#  Site name and stage lookup
+#  Build site links (NEW: bulk replacement for fetch_site_name)
 # ==============================
-stage_cache = {}
-def fetch_stage_name(stage_id):
-    if not stage_id:
-        return ""
-    stage_id = str(stage_id)
-    if stage_id in stage_cache:
-        return stage_cache[stage_id]
-    r = safe_get(f"{BASE_URL}/PipelineStages/{stage_id}")
-    if r and r.status_code == 200:
-        name = r.json().get("STAGE_NAME", "") or ""
-        stage_cache[stage_id] = name
-        return name
-    return ""
+def build_site_links():
+    """
+    Bulk fetch all Opportunity links and map:
+        OPPORTUNITY_ID -> [linked Organisation IDs]
 
-def fetch_site_name(opportunity_id, main_org_id, orgs):
-    url = f"{BASE_URL}/Opportunities/{opportunity_id}/Links"
-    r = safe_get(url)
-    if not r:
-        return ""
-    links = r.json()
-    site_names = [
-        orgs.get(str(l.get("LINK_OBJECT_ID")))
-        for l in links
-        if l.get("LINK_OBJECT_NAME") == "Organisation"
-        and str(l.get("LINK_OBJECT_ID")) != str(main_org_id)
-    ]
-    return " and ".join([n for n in site_names if n])
+    We then filter out the main organisation per opportunity in the main loop.
+    """
+    # NOTE: If endpoint name differs (e.g. 'OpportunityLinks'), adjust here.
+    links = fetch_all_paged("OpportunityLink")
+    site_links_map = {}
+
+    for l in links:
+        if (
+            l.get("LINK_OBJECT_NAME") == "Organisation"
+            and l.get("OPPORTUNITY_ID")
+            and l.get("LINK_OBJECT_ID")
+        ):
+            opp_id = str(l["OPPORTUNITY_ID"])
+            org_id = str(l["LINK_OBJECT_ID"])
+            site_links_map.setdefault(opp_id, set()).add(org_id)
+
+    # convert sets to lists
+    site_links_map = {k: list(v) for k, v in site_links_map.items()}
+    logging.info(f"Built site links map for {len(site_links_map)} opportunities")
+    return site_links_map
 
 # ==============================
 #  Utility
@@ -278,42 +302,31 @@ def build_invoice_lookup_by_sku():
 #  Main Execution Function
 # ==============================
 def main_opportunity():
-    # Lookups
-    organisations, users, pricebooks, products_family, product_codes, state_reason_map = build_lookups()
+    start_time = time.time()
+    logging.info("==== Starting Opportunity export (optimized) ====")
+
+    # Lookups (bulk)
+    (
+        organisations,
+        users,
+        pricebooks,
+        products_family,
+        product_codes,
+        state_reason_map,
+        stage_name_map,
+    ) = build_lookups()
+
+    pricebook_entry_map = build_pricebook_entry_map()
     invoice_lookup = build_invoice_lookup_by_sku()
-    opp_product_ids_map, opp_product_skus_map = build_opp_product_maps(product_codes)
+    opp_product_ids_map, opp_product_skus_map = build_opp_product_maps(
+        product_codes, pricebook_entry_map
+    )
+    site_links_map = build_site_links()
     opportunities = fetch_all_paged("Opportunities")
 
     if not opportunities:
         logging.warning("No opportunities found. Skipping file generation.")
         return None
-
-    # Precompute site names & stage names in parallel
-    site_name_map = {}
-    stage_name_map = {}
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        site_futures = {
-            ex.submit(
-                fetch_site_name,
-                opp.get("OPPORTUNITY_ID"),
-                opp.get("ORGANISATION_ID"),
-                organisations
-            ): opp
-            for opp in opportunities
-        }
-        stage_futures = {
-            ex.submit(fetch_stage_name, opp.get("STAGE_ID")): opp
-            for opp in opportunities
-        }
-
-        for f in as_completed(site_futures):
-            opp = site_futures[f]
-            site_name_map[str(opp.get("OPPORTUNITY_ID"))] = f.result() or ""
-
-        for f in as_completed(stage_futures):
-            opp = stage_futures[f]
-            stage_id = str(stage_futures[f].get("STAGE_ID") or "")
-            stage_name_map[stage_id] = f.result() or ""
 
     rows = []
 
@@ -327,8 +340,18 @@ def main_opportunity():
         stage_id = str(opp.get("STAGE_ID") or "")
         opp_id_str = str(opp.get("OPPORTUNITY_ID"))
 
-        site_name = site_name_map.get(opp_id_str, "")
+        # Site name: all linked orgs except main org
+        linked_org_ids = site_links_map.get(opp_id_str, [])
+        site_org_ids = [oid for oid in linked_org_ids if oid != org_id]
+        site_names = [
+            organisations.get(oid, "") for oid in site_org_ids if organisations.get(oid)
+        ]
+        site_name = " and ".join(site_names)
+
+        # Stage name from bulk map
         current_stage = stage_name_map.get(stage_id, "")
+
+        # Product IDs + SKUs
         product_ids = opp_product_ids_map.get(opp_id_str, [])
         state_reason = state_reason_map.get(str(opp.get("STATE_REASON_ID") or ""), "")
 
@@ -386,7 +409,9 @@ def main_opportunity():
                 "Archived Field - Product Type ": clean_text(cf.get("Product_Type__c", "")),
                 "Product ID": pid,
                 "Organization Name": clean_text(organisations.get(org_id, "")),
-                "Owner Name": clean_text(users.get(owner_id, "").split(";")[1] if users.get(owner_id) else ""),
+                "Owner Name": clean_text(
+                    users.get(owner_id, "").split(";")[1] if users.get(owner_id) else ""
+                ),
                 "Channel Type": clean_text(cf.get("Channel_Type__c", "")),
                 "GAP Strategy": clean_text(cf.get("GAP_Strategy__c", "")),
                 "GAP Current State": clean_text(cf.get("Current_State__c", "")),
@@ -419,12 +444,17 @@ def main_opportunity():
     # Export
     # ==============================
     output_file = os.path.join("/tmp", "Opportunities BPR.xlsx")
+    # output_file = os.path.join("Opportunities BPR.csv")
 
     if rows:
         df = pd.DataFrame(rows)
         df = df.drop_duplicates()
         df.to_excel(output_file, index=False, engine="openpyxl")
+        # df.to_csv(output_file, index=False)
         logging.info(f"Exported {len(df)} opportunity rows to {output_file}")
+        logging.info(
+            f"==== Finished Opportunity export in {time.time() - start_time:.1f} seconds ===="
+        )
         return output_file
     else:
         logging.warning("No rows to export for opportunities. File will not be created.")
