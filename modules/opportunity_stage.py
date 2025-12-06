@@ -52,44 +52,6 @@ RENAMED_FILE = "Opp Stage Duration.xlsx"
  
 
  
-
-# def get_access_token_via_refresh_token(refresh_token):
-#     """
-#     Refresh token ka use karke naya access token acquire karta hai.
-#     SSL error ko handle karne ke liye session.verify=False use kiya gaya hai.
-#     """
-    
-   
-#     session = requests.Session()
-     
-#     requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
-#     session.verify = False 
-
-    
-#     app = msal.PublicClientApplication(
-#         CLIENT_ID, 
-#         authority=AUTHORITY,
-#         http_client=session   
-#     ) 
-    
-#     logging.info("Acquiring new access token using refresh token...")
-    
-#     try:
-#         result = app.acquire_token_by_refresh_token(
-#             refresh_token,
-#             scopes=SCOPE 
-#         )
-#     except Exception as e:
-#         logging.critical(f"MSAL Exception during token acquisition: {e}")
-#         raise
-
-#     if 'access_token' in result:
-#         # Naya: Token ke saath session object bhi return karein
-#         return result['access_token'], session 
-#     else:
-#         logging.error(f"Authentication failed: {result.get('error_description', 'Unknown error')}")
-#         raise Exception("Authentication failed.")
-
  
 def process_zip_data(file_content, original_filename, renamed_file_name):
     """

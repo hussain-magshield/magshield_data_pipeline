@@ -1,258 +1,253 @@
-# ==============================
-#  TASK EXPORT SCRIPT (PARALLEL OPTIMIZED)
-# ==============================
 import time
 import requests
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ChunkedEncodingError, ConnectionError, Timeout
 import pandas as pd
-import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 import yaml
 import os
 import logging
 
 # ==============================
-#  Logging Configuration
+#  Logging
 # ==============================
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 # ==============================
-#  Load ENV
+#  ENV
 # ==============================
 def load_env_config(file_path="env.yaml"):
-    """
-    Local development ke liye env.yaml read karega
-    Production (Azure) mein env variable se read karega
-    """
     config = {}
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
             config = yaml.safe_load(f) or {}
 
-    for key in ["INSIGHTLY_API_KEY", "CLIENT_ID", "TENANT_ID", "REFRESH_TOKEN"]:
-        if os.environ.get(key):
-            config[key] = os.environ.get(key)
+    if os.environ.get("INSIGHTLY_API_KEY"):
+        config["INSIGHTLY_API_KEY"] = os.environ["INSIGHTLY_API_KEY"]
 
     return config
+
 
 env = load_env_config()
 
 API_KEY = env.get("INSIGHTLY_API_KEY")
-CLIENT_ID = env.get("CLIENT_ID")
-TENANT_ID = env.get("TENANT_ID")
-REFRESH_TOKEN = env.get("REFRESH_TOKEN")
-
 BASE_URL = "https://api.na1.insightly.com/v3.1"
 auth = HTTPBasicAuth(API_KEY, "")
-MAX_WORKERS = 30
 
 # ==============================
-#  Safe GET with Backoff
+#  Safe GET
 # ==============================
-def safe_get(url, params=None, max_retries=3, timeout=30):
+def safe_get(url, params=None, max_retries=4, timeout=40):
     backoff = 2
     for attempt in range(max_retries):
         try:
             r = requests.get(url, auth=auth, params=params, timeout=timeout)
             r.raise_for_status()
             return r
-        except (ChunkedEncodingError, ConnectionError, Timeout) as e:
-            wait_time = backoff ** attempt
-            logging.warning(f"Network error: {e} | Attempt {attempt+1}/{max_retries}")
-            if attempt < max_retries - 1:
-                time.sleep(wait_time)
-            else:
-                logging.error(f"Skipping: {url}")
+        except Exception as e:
+            if attempt == max_retries - 1:
+                logging.error(f"Failed after retries → {url}")
                 return None
-        except requests.HTTPError as e:
-            logging.error(f"HTTP error: {e} | URL: {url}")
-            return None
+            logging.warning(f"Retry {attempt+1}/{max_retries} → {url}")
+            time.sleep(backoff ** attempt)
 
 # ==============================
-#  Caches
+#  PAGED FETCH (ALL TASKS)
 # ==============================
-category_cache = {}
-user_cache = {}
-contact_cache = {}
-lead_cache = {}
-opportunity_cache = {}
-organization_cache = {}
-project_cache = {}
-note_cache = {}
-
-# ==============================
-#  Lookup functions
-# ==============================
-def fetch_category(cid):
-    if cid and cid not in category_cache:
-        r = safe_get(f"{BASE_URL}/TaskCategories/{cid}")
-        if r:
-            category_cache[cid] = r.json().get("CATEGORY_NAME", "")
-
-def fetch_user(uid):
-    uid = str(uid)
-    if uid and uid not in user_cache:
-        r = safe_get(f"{BASE_URL}/Users/{uid}")
-        if r:
-            u = r.json()
-            user_cache[uid] = f'{u.get("USER_ID")};{u.get("FIRST_NAME","")} {u.get("LAST_NAME","")}'.strip()
-
-def fetch_contact(cid):
-    cid = str(cid)
-    if cid and cid not in contact_cache:
-        r = safe_get(f"{BASE_URL}/Contacts/{cid}")
-        if r:
-            c = r.json()
-            contact_cache[cid] = f'{c.get("FIRST_NAME","")} {c.get("LAST_NAME","")}'.strip()
-
-def fetch_lead(lid):
-    lid = str(lid)
-    if lid and lid not in lead_cache:
-        r = safe_get(f"{BASE_URL}/Leads/{lid}")
-        if r:
-            l = r.json()
-            lead_cache[lid] = f'{l.get("FIRST_NAME","")} {l.get("LAST_NAME","")}'.strip()
-
-def fetch_opportunity(oid):
-    oid = str(oid)
-    if oid and oid not in opportunity_cache:
-        r = safe_get(f"{BASE_URL}/Opportunities/{oid}")
-        if r:
-            o = r.json()
-            opportunity_cache[oid] = (o.get("OPPORTUNITY_NAME", ""), o.get("ORGANISATION_ID"))
-
-def fetch_organization(oid):
-    oid = str(oid)
-    if oid and oid not in organization_cache:
-        r = safe_get(f"{BASE_URL}/Organisations/{oid}")
-        if r:
-            organization_cache[oid] = r.json().get("ORGANISATION_NAME", "")
-
-def fetch_project(pid):
-    pid = str(pid)
-    if pid and pid not in project_cache:
-        r = safe_get(f"{BASE_URL}/Projects/{pid}")
-        if r:
-            project_cache[pid] = r.json().get("PROJECT_NAME", "")
-
-def fetch_note(nid):
-    nid = str(nid)
-    if nid and nid not in note_cache:
-        r = safe_get(f"{BASE_URL}/Notes/{nid}")
-        if r:
-            note_cache[nid] = r.json().get("TITLE", "")
-
-# ==============================
-#  Fetch All Tasks
-# ==============================
-def fetch_all_tasks():
-    tasks = []
+def fetch_all(endpoint, top=500):
+    records = []
     skip = 0
-    top = 500
     while True:
-        params = {"skip": skip, "top": top}
-        resp = safe_get(f"{BASE_URL}/Tasks", params=params)
-        if not resp:
+        r = safe_get(f"{BASE_URL}/{endpoint}", params={"skip": skip, "top": top})
+        if not r:
             break
-        data = resp.json()
-        if not data:
+        chunk = r.json()
+        if not chunk:
             break
-        tasks.extend(data)
+        records.extend(chunk)
         skip += top
-        logging.info(f"{len(tasks)} tasks fetched so far")
-    return tasks
+    return records
 
 # ==============================
-#  Parallel Lookup
+#  BULK FETCH FOR SPECIFIC IDs
+# (Fetch only linked IDs in batches)
 # ==============================
-def parallel_lookups(cat_ids, user_ids, contact_ids, lead_ids, opp_ids, org_ids, proj_ids, note_ids):
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = []
-        for cid in cat_ids: futures.append(executor.submit(fetch_category, cid))
-        for uid in user_ids: futures.append(executor.submit(fetch_user, uid))
-        for cid in contact_ids: futures.append(executor.submit(fetch_contact, cid))
-        for lid in lead_ids: futures.append(executor.submit(fetch_lead, lid))
-        for oid in opp_ids: futures.append(executor.submit(fetch_opportunity, oid))
-        for oid in org_ids: futures.append(executor.submit(fetch_organization, oid))
-        for pid in proj_ids: futures.append(executor.submit(fetch_project, pid))
-        for nid in note_ids: futures.append(executor.submit(fetch_note, nid))
+def fetch_by_ids(endpoint, id_field_name, id_list, batch_size=80):
+    if not id_list:
+        return []
 
-        for _ in as_completed(futures):
-            pass
-    logging.info(f"Lookups done → Categories={len(category_cache)}, Users={len(user_cache)}, Contacts={len(contact_cache)}")
+    id_list = list(set(id_list))   # unique
+    all_rows = []
+
+    def fetch_batch(batch_ids):
+        values = ",".join([str(i) for i in batch_ids])
+        url = f"{BASE_URL}/{endpoint}"
+        params = {"$filter": f"{id_field_name} in ({values})"}
+        r = safe_get(url, params=params)
+        return r.json() if r else []
+
+    # batch into chunks
+    batches = [id_list[i:i + batch_size] for i in range(0, len(id_list), batch_size)]
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = [ex.submit(fetch_batch, b) for b in batches]
+        for f in as_completed(futures):
+            rows = f.result()
+            if rows:
+                all_rows.extend(rows)
+
+    logging.info(f"{endpoint}: {len(all_rows)} rows fetched (linked only)")
+    return all_rows
 
 # ==============================
-#  Main Function
+#  Format Date
 # ==============================
-from datetime import datetime
-
 def format_date_only(date_str):
-    """Convert 'YYYY-MM-DD HH:MM:SS' → 'MM/DD/YYYY'"""
     if not date_str:
         return ""
     try:
         dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
         return dt.strftime("%m/%d/%Y")
-    except ValueError:
-        return date_str  # 
-    
-    
+    except:
+        return date_str
+
+# ==============================
+#  MAIN TASK EXPORT
+# ==============================
 def main_task():
     logging.info("Starting Task Export...")
-    tasks = fetch_all_tasks()
+
+    # ---------------------------------------
+    # Step 1: Fetch all tasks
+    # ---------------------------------------
+    tasks = fetch_all("Tasks")
+    logging.info(f"Total tasks fetched: {len(tasks)}")
 
     if not tasks:
-        logging.warning("No tasks found. Skipping file generation.")
+        logging.warning("No tasks found.")
         return None
 
-    # Collect unique IDs
-    cat_ids, user_ids, contact_ids, lead_ids, opp_ids, org_ids, proj_ids, note_ids = set(), set(), set(), set(), set(), set(), set(), set()
+    # ---------------------------------------
+    # Step 2: Collect all linked IDs
+    # ---------------------------------------
+    category_ids = set()
+    user_ids = set()
+    contact_ids = set()
+    lead_ids = set()
+    opportunity_ids = set()
+    org_ids = set()
+    project_ids = set()
+    note_ids = set()
+
     for t in tasks:
-        if t.get("CATEGORY_ID"): cat_ids.add(t["CATEGORY_ID"])
-        if t.get("OWNER_USER_ID"): user_ids.add(t["OWNER_USER_ID"])
+        if t.get("CATEGORY_ID"):
+            category_ids.add(t["CATEGORY_ID"])
+
+        if t.get("OWNER_USER_ID"):
+            user_ids.add(t["OWNER_USER_ID"])
+
         for link in t.get("LINKS", []):
-            obj, obj_id = link.get("LINK_OBJECT_NAME"), link.get("LINK_OBJECT_ID")
-            if obj == "Contact": contact_ids.add(obj_id)
-            elif obj == "Lead": lead_ids.add(obj_id)
-            elif obj == "Opportunity": opp_ids.add(obj_id)
-            elif obj == "Organisation": org_ids.add(obj_id)
-            elif obj == "Project": proj_ids.add(obj_id)
-            elif obj == "Note": note_ids.add(obj_id)
+            obj = link.get("LINK_OBJECT_NAME")
+            oid = link.get("LINK_OBJECT_ID")
+            if not oid:
+                continue
 
-    # Parallel fetching
-    parallel_lookups(cat_ids, user_ids, contact_ids, lead_ids, opp_ids, org_ids, proj_ids, note_ids)
+            if obj == "Contact": contact_ids.add(oid)
+            elif obj == "Lead": lead_ids.add(oid)
+            elif obj == "Opportunity": opportunity_ids.add(oid)
+            elif obj == "Organisation": org_ids.add(oid)
+            elif obj == "Project": project_ids.add(oid)
+            elif obj == "Note": note_ids.add(oid)
 
-    # Transform data
+    # ---------------------------------------
+    # Step 3: BULK FETCH ONLY REQUIRED IDs
+    # ---------------------------------------
+    all_categories = fetch_by_ids("TaskCategories", "CATEGORY_ID", category_ids)
+    all_users = fetch_by_ids("Users", "USER_ID", user_ids)
+    all_contacts = fetch_by_ids("Contacts", "CONTACT_ID", contact_ids)
+    all_leads = fetch_by_ids("Leads", "LEAD_ID", lead_ids)
+    all_opportunities = fetch_by_ids("Opportunities", "OPPORTUNITY_ID", opportunity_ids)
+    all_orgs = fetch_by_ids("Organisations", "ORGANISATION_ID", org_ids)
+    all_projects = fetch_by_ids("Projects", "PROJECT_ID", project_ids)
+    all_notes = fetch_by_ids("Notes", "NOTE_ID", note_ids)
+
+    # ---------------------------------------
+    # Step 4: Build lookup maps
+    # ---------------------------------------
+    category_map = {c["CATEGORY_ID"]: c.get("CATEGORY_NAME", "") for c in all_categories}
+    user_map = {
+        u["USER_ID"]: f'{u["USER_ID"]};{u.get("FIRST_NAME","")} {u.get("LAST_NAME","")}'
+        for u in all_users
+    }
+    contact_map = {
+        c["CONTACT_ID"]: f'{c.get("FIRST_NAME","")} {c.get("LAST_NAME","")}'
+        for c in all_contacts
+    }
+    lead_map = {
+        l["LEAD_ID"]: f'{l.get("FIRST_NAME","")} {l.get("LAST_NAME","")}'
+        for l in all_leads
+    }
+    opportunity_map = {
+        o["OPPORTUNITY_ID"]: (o.get("OPPORTUNITY_NAME", ""), o.get("ORGANISATION_ID"))
+        for o in all_opportunities
+    }
+    org_map = {
+        o["ORGANISATION_ID"]: o.get("ORGANISATION_NAME", "")
+        for o in all_orgs
+    }
+    project_map = {
+        p["PROJECT_ID"]: p.get("PROJECT_NAME", "")
+        for p in all_projects
+    }
+    note_map = {
+        n["NOTE_ID"]: n.get("TITLE", "")
+        for n in all_notes
+    }
+
+    # ---------------------------------------
+    # Step 5: Transform rows
+    # ---------------------------------------
     rows = []
+
     for t in tasks:
-        linked_contact = linked_lead = linked_opportunity = linked_org = linked_project = linked_note = ""
+        linked_contact = linked_lead = linked_opp = linked_org = linked_proj = linked_note = ""
+
         for link in t.get("LINKS", []):
-            obj, obj_id = link.get("LINK_OBJECT_NAME"), str(link.get("LINK_OBJECT_ID"))
+            obj = link.get("LINK_OBJECT_NAME")
+            oid = link.get("LINK_OBJECT_ID")
+
             if obj == "Contact":
-                linked_contact = contact_cache.get(obj_id, "")
+                linked_contact = contact_map.get(oid, "")
+
             elif obj == "Lead":
-                linked_lead = lead_cache.get(obj_id, "")
+                linked_lead = lead_map.get(oid, "")
+
             elif obj == "Opportunity":
-                opp_name, org_id = opportunity_cache.get(obj_id, ("", None))
-                linked_opportunity = opp_name
+                opp_name, org_id = opportunity_map.get(oid, ("", None))
+                linked_opp = opp_name
                 if org_id:
-                    linked_org = organization_cache.get(str(org_id), "")
+                    linked_org = org_map.get(org_id, "")
+
             elif obj == "Organisation":
-                linked_org = organization_cache.get(obj_id, "")
+                linked_org = org_map.get(oid, "")
+
             elif obj == "Project":
-                linked_project = project_cache.get(obj_id, "")
+                linked_proj = project_map.get(oid, "")
+
             elif obj == "Note":
-                linked_note = note_cache.get(obj_id, "")
+                linked_note = note_map.get(oid, "")
 
         rows.append({
             "TaskID": t.get("TASK_ID"),
-            "Category": category_cache.get(t.get("CATEGORY_ID"), ""),
+            "Category": category_map.get(t.get("CATEGORY_ID"), ""),
             "Status": t.get("STATUS"),
             "Percent Complete": t.get("PERCENT_COMPLETE"),
             "Priority": t.get("PRIORITY"),
-            "Owner Name": user_cache.get(str(t.get("OWNER_USER_ID")), ""),
+            "Owner Name": user_map.get(t.get("OWNER_USER_ID"), ""),
             "Assigned To Team": t.get("ASSIGNED_TEAM_ID"),
             "Date Assigned": format_date_only(t.get("ASSIGNED_DATE_UTC")),
             "Date Created": format_date_only(t.get("DATE_CREATED_UTC")),
@@ -261,10 +256,10 @@ def main_task():
             "Date Completed": format_date_only(t.get("COMPLETED_DATE_UTC")),
             "Linked Contact": linked_contact,
             "Linked Lead": linked_lead,
-            "Linked Opportunity": linked_opportunity,
+            "Linked Opportunity": linked_opp,
             "Linked Organization": linked_org,
-            "Linked Project": linked_project,
-            "Linked Note": linked_note
+            "Linked Project": linked_proj,
+            "Linked Note": linked_note,
         })
 
      
@@ -279,3 +274,4 @@ def main_task():
     else:
         logging.warning("No rows to export for tasks. File will not be created.")
         return None
+
