@@ -5,13 +5,16 @@ import requests
 import yaml
 import logging
 
+requests.packages.urllib3.disable_warnings(
+    requests.packages.urllib3.exceptions.InsecureRequestWarning
+)
  
 def get_driveitem_from_share_url(headers, share_url):
     b = base64.b64encode(share_url.encode("utf-8")).decode("utf-8")
     b = b.rstrip("=").replace("/", "_").replace("+", "-")
     share_token = "u!" + b
     endpoint = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem"
-    resp = requests.get(endpoint, headers=headers)
+    resp = requests.get(endpoint, headers=headers,verify=False)
     if resp.status_code != 200:
         logging.error(f"Error fetching share: {resp.status_code} | {resp.text}")
         return None
@@ -26,7 +29,7 @@ def replace_file_on_onedrive(headers, drive_id, item_id, local_file_path):
 
     try:
         with open(local_file_path, "rb") as f:
-            resp = requests.put(upload_url, headers=headers, data=f)
+            resp = requests.put(upload_url, headers=headers, data=f,verify=False)
 
         if resp.status_code in [200, 201]:
             logging.info(f"Successfully replaced or uploaded: {file_name}")

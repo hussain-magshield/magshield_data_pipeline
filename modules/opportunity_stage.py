@@ -107,19 +107,43 @@ def process_zip_data(file_content, original_filename, renamed_file_name):
         
         logging.info(f"Report downloaded successfully to: {initial_path}")
         
-         
-        final_path = os.path.join(OUTPUT_DIR, renamed_file_name)
-        
-         
-        if os.path.exists(final_path):
-            os.remove(final_path)
+        if original_filename.lower().endswith(".xlsx"):
+            final_path = os.path.join(OUTPUT_DIR, f"{renamed_file_name}.xlsx")
 
-        os.rename(initial_path, final_path)
+            if os.path.exists(final_path):
+                os.remove(final_path)
+
+            os.rename(initial_path, final_path)
+            return final_path
         
-        logging.info(f" Success: File renamed to: {final_path}")
-        
-        # Step 3: Renamed file ka final path return karna
-        return final_path
+        if original_filename.lower().endswith(".csv"):
+
+            # Final Excel path (renamed_file_name should end with .xlsx)
+            final_path = os.path.join(OUTPUT_DIR, renamed_file_name)
+
+            # Remove existing Excel file if exists
+            if os.path.exists(final_path):
+                os.remove(final_path)
+
+            # --- NEW: Convert CSV → Excel ---
+            try:
+                import pandas as pd
+                df = pd.read_csv(initial_path)     # read CSV
+                df.to_excel(final_path, index=False)   # write Excel
+
+                logging.info(f"CSV converted to Excel: {final_path}")
+            except Exception as e:
+                logging.error(f"Error converting CSV to Excel: {e}")
+                return None
+            finally:
+                # delete original CSV
+                try:
+                    os.remove(initial_path)
+                except:
+                    pass
+
+            return final_path
+         
         
     except Exception as e:
         logging.error(f"Error saving or renaming file: {e}")
