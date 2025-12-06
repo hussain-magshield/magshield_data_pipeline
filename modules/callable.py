@@ -42,9 +42,7 @@ def final():
     
 
 def final2():
-    task_file = main_task()
-    upload_if_file_exists(task_file, "Task")
-   
+     
 
     opportunity_file = main_opportunity()
     upload_if_file_exists(opportunity_file, "Opportunity")
@@ -65,4 +63,8 @@ def final3():
     opportunity_stage = main_opp_stage()        
     upload_if_file_exists(opportunity_stage, "Opportunity Stage")
     
+    
+def final4():    
+    task_file = main_task()
+    upload_if_file_exists(task_file, "Task")
     
