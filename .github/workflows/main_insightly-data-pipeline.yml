@@ -154,4 +154,5 @@ jobs:
           app-name: 'insightly-data-pipeline'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_B0F4428D615B4C628633A9FE073380B6 }}
           package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+          clean: true
 
