@@ -47,7 +47,9 @@ SCOPE = ['Mail.Read', 'User.Read'] # Corrected scope (offline_access removed)
 AUTHORITY = f'https://login.microsoftonline.com/{TENANT_ID}'
 INSIGHTLY_SENDER = 'notifications@insightly.com' 
 SUBJECT_FILTER = 'Insightly has finished exporting your report:' 
-OUTPUT_DIR = "temp" 
+OUTPUT_DIR = "/tmp" 
+ 
+
 RENAMED_FILE = "Opp Stage Duration.xlsx"
  
 
