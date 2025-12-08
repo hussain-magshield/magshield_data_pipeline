@@ -8,22 +8,6 @@ import os
 import yaml
 import logging
 
-# ===========================
-#   ENABLE LOGGING
-# ===========================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    datefmt="%H:%M:%S"
-)
-
-def log_time(label, start):
-    logging.info(f"{label}: {round(time.time() - start, 2)}s")
-
-
-# ===========================
-#  LOAD ENV
-# ===========================
 def load_env_config(file_path="env.yaml"):
     config = {}
     if os.path.exists(file_path):
@@ -34,16 +18,11 @@ def load_env_config(file_path="env.yaml"):
             config[key] = os.environ.get(key)
     return config
 
-
 env = load_env_config()
 API_KEY = env.get("INSIGHTLY_API_KEY")
 BASE_URL = "https://api.na1.insightly.com/v3.1"
 auth = HTTPBasicAuth(API_KEY, "")
 
-
-# ===========================
-#  SAFE GET
-# ===========================
 def safe_get(url, params=None, max_retries=5, timeout=60):
     backoff = 2
     for attempt in range(max_retries):
@@ -51,25 +30,17 @@ def safe_get(url, params=None, max_retries=5, timeout=60):
             r = requests.get(url, auth=auth, params=params, timeout=timeout)
             r.raise_for_status()
             return r
-        except Exception:
+        except Exception as e:
             if attempt < max_retries - 1:
                 time.sleep(backoff ** attempt)
             else:
                 return None
     return None
 
-
-# ===========================
-#  PAGINATED FETCH
-# ===========================
 def fetch_all_paged(endpoint, top=500):
-    t0 = time.time()
-    logging.info(f"Fetching {endpoint} ...")
-
     records = []
     resp = safe_get(f"{BASE_URL}/{endpoint}", params={"top": 1, "count_total": "true"})
     if not resp:
-        logging.warning(f"Failed to fetch {endpoint}")
         return records
 
     total_count = int(resp.headers.get("X-Total-Count", 0))
@@ -85,23 +56,19 @@ def fetch_all_paged(endpoint, top=500):
         for f in as_completed(futures):
             records.extend(f.result())
 
-    logging.info(f"Fetched {len(records)} {endpoint} in {round(time.time() - t0, 2)}s")
     return records
 
-
-# ===========================
-#   BULK MAP BUILDERS
-# ===========================
+# NEW: Fetch all pricebook entries once (HUGE IMPROVEMENT)
 def build_pricebook_entry_map():
     entries = fetch_all_paged("PricebookEntry")
     return {str(e["PRICEBOOK_ENTRY_ID"]): str(e.get("PRODUCT_ID")) for e in entries}
 
-
+# NEW: Fetch all pipeline stages once
 def build_stage_map():
     stages = fetch_all_paged("PipelineStages")
-    return {str(s["STAGE_ID"]): s.get("STAGE_NAME", "") for s in stages}
+    return {str(s["PIPELINE_STAGE_ID"]): s.get("STAGE_NAME", "") for s in stages}
 
-
+# NEW: Fetch all opportunity links in one go
 def build_opp_link_map():
     links = fetch_all_paged("OpportunityLinks")
     opp_links = {}
@@ -111,93 +78,54 @@ def build_opp_link_map():
             opp_links.setdefault(oid, []).append(l)
     return opp_links
 
-
 def clean_text(v):
     return v.replace("\r", " ").replace("\n", " ").strip() if isinstance(v, str) else v
 
 
-# ===========================
-#   MAIN EXECUTION
-# ===========================
 def main_opportunity():
-    
-    total_start = time.time()
-    logging.info("🚀 Starting Opportunity Export...")
-
-    t0 = time.time()
+    # LOOKUPS
     orgs = {str(o["ORGANISATION_ID"]): o.get("ORGANISATION_NAME", "") for o in fetch_all_paged("Organisations")}
-    log_time("Loaded Organisations", t0)
-
-    t0 = time.time()
-    users = {str(u["USER_ID"]): f'{u.get("USER_ID")};{u.get("FIRST_NAME","")} {u.get("LAST_NAME","")}'
-             for u in fetch_all_paged("Users")}
-    log_time("Loaded Users", t0)
-
-    t0 = time.time()
+    users = {str(u["USER_ID"]): f'{u.get("USER_ID")};{u.get("FIRST_NAME","")} {u.get("LAST_NAME","")}' for u in fetch_all_paged("Users")}
     pricebooks = {str(p["PRICEBOOK_ID"]): p.get("NAME", "") for p in fetch_all_paged("Pricebook")}
-    log_time("Loaded Pricebooks", t0)
-
-    t0 = time.time()
     products = {str(p["PRODUCT_ID"]): p.get("PRODUCT_FAMILY", "") for p in fetch_all_paged("Product")}
-    log_time("Loaded Products", t0)
+    state_reason_map = {str(r["STATE_REASON_ID"]): r.get("STATE_REASON", "") for r in fetch_all_paged("OpportunityStateReasons")}
 
-    t0 = time.time()
-    state_reason_map = {str(r["STATE_REASON_ID"]): r.get("STATE_REASON", "")
-                        for r in fetch_all_paged("OpportunityStateReasons")}
-    log_time("Loaded State Reasons", t0)
-
-    # NEW MAPS
-    t0 = time.time()
+    # NEW maps
     stage_map = build_stage_map()
-    log_time("Loaded Stage Map", t0)
-
-    t0 = time.time()
     pricebook_entry_map = build_pricebook_entry_map()
-    log_time("Loaded Pricebook Entry Map", t0)
-
-    t0 = time.time()
     opp_link_map = build_opp_link_map()
-    log_time("Loaded Opportunity Link Map", t0)
 
-    t0 = time.time()
+    # LINE ITEMS
     line_items = fetch_all_paged("OpportunityLineItem")
-    log_time("Loaded Opportunity Line Items", t0)
 
-    # Build product map
-    t0 = time.time()
+    # Build product map (NO API CALLS)
     opp_product_map = {}
     for li in line_items:
         pid = pricebook_entry_map.get(str(li.get("PRICEBOOK_ENTRY_ID")))
         if pid:
             opp_product_map.setdefault(str(li["OPPORTUNITY_ID"]), []).append(pid)
-    log_time("Mapped Products to Opportunities", t0)
 
-    t0 = time.time()
     opportunities = fetch_all_paged("Opportunities")
-    log_time("Loaded Opportunities", t0)
 
-     
-    t0 = time.time()
     rows = []
 
     for opp in opportunities:
         cf = {c["FIELD_NAME"]: c.get("FIELD_VALUE") for c in opp.get("CUSTOMFIELDS", [])}
-
         opp_id = str(opp["OPPORTUNITY_ID"])
-        stage_name = stage_map.get(str(opp.get("STAGE_ID") or ""), "")
-
-        # Site Name
+        stage_id = str(opp.get("STAGE_ID") or "")
         main_org = str(opp.get("ORGANISATION_ID") or "")
+
+        # SITE NAME (no API calls)
         site_links = opp_link_map.get(opp_id, [])
-        site_names = [
-            orgs.get(str(l["LINK_OBJECT_ID"])) for l in site_links
-            if l.get("LINK_OBJECT_NAME") == "Organisation" and str(l["LINK_OBJECT_ID"]) != main_org
-        ]
+        site_names = [orgs.get(str(l["LINK_OBJECT_ID"])) for l in site_links 
+                      if l.get("LINK_OBJECT_NAME") == "Organisation" and str(l["LINK_OBJECT_ID"]) != main_org]
         site_name = " and ".join([s for s in site_names if s])
 
         product_ids = opp_product_map.get(opp_id, [])
-        invoice_num = cf.get("Invoice_Number__c", "")
-        po_number = cf.get("Purchase_Order__c", "")
+        stage_name = stage_map.get(stage_id, "")
+
+        invoice_num = cf.get("Invoice_Num__c", "")
+        po_number = cf.get("PO_Number__c", "")
 
         def base_row(pid=""):
             return {
@@ -242,33 +170,8 @@ def main_opportunity():
         else:
             rows.append(base_row(""))
 
-    
-    log_time("Built CSV Rows", t0)
-    t0 = time.time()
-    log_time("Saved CSV File", t0)
+    df = pd.DataFrame(rows).drop_duplicates()
+    df.to_csv("insightly_opportunities_new.csv", index=False)
+
+main_opportunity()
  
-    
-
-     
-    output_file = os.path.join("/tmp", "Opportunities BPR.xlsx")
-   
-
-    if rows:
-        df = pd.DataFrame(rows)
-        df = df.drop_duplicates()
-        df.to_excel(output_file, index=False, engine="openpyxl")
-        # df.to_csv(output_file, index=False)
-        logging.info(f"Exported {len(df)} opportunity rows to {output_file}")
-        log_time("Built CSV Rows", t0)
-        t0 = time.time()
-        log_time("Saved CSV File", t0)
-        logging.info(f"✅ Total Execution Time: {round(time.time() - total_start, 2)} seconds")
-         
-        return output_file
-    else:
-        logging.warning("No rows to export for opportunities. File will not be created.")
-        return None
-
-
-
-  

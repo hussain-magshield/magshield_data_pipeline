@@ -176,7 +176,9 @@ def main_opportunity():
     opportunities = fetch_all_paged("Opportunities")
     log_time("Loaded Opportunities", t0)
 
-     
+    # ===========================
+    #  BUILD ROWS
+    # ===========================
     t0 = time.time()
     rows = []
 
@@ -242,16 +244,21 @@ def main_opportunity():
         else:
             rows.append(base_row(""))
 
-    
+    # log_time("Built CSV Rows", t0)
+
+    # # SAVE CSV
+    # t0 = time.time()
+    # df = pd.DataFrame(rows).drop_duplicates()
+    # df.to_csv("insightly_opportunities_new.csv", index=False)
     log_time("Built CSV Rows", t0)
     t0 = time.time()
     log_time("Saved CSV File", t0)
  
-    
+    # log_time("Saved CSV File", t0)
 
-     
+    # logging.info(f"✅ Total Execution Time: {round(time.time() - total_start, 2)} seconds")
     output_file = os.path.join("/tmp", "Opportunities BPR.xlsx")
-   
+    # output_file = os.path.join("Opportunities BPR.csv")
 
     if rows:
         df = pd.DataFrame(rows)
@@ -270,5 +277,6 @@ def main_opportunity():
         return None
 
 
-
-  
+# Run
+main_opportunity()
+ 
