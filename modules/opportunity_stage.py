@@ -197,7 +197,7 @@ def download_insightly_report(token,session):
         f"https://graph.microsoft.com/v1.0/me/messages?"
         f"$filter={filter_string}"
         f"&$orderby=receivedDateTime desc" 
-        f"&$top=10" 
+        f"&$top=3" 
     )
     
    

@@ -122,7 +122,7 @@ def clean_text(v):
 def main_opportunity():
     
     total_start = time.time()
-    logging.info("🚀 Starting Opportunity Export...")
+    logging.info(" Starting Opportunity Export...")
 
     t0 = time.time()
     orgs = {str(o["ORGANISATION_ID"]): o.get("ORGANISATION_NAME", "") for o in fetch_all_paged("Organisations")}
@@ -262,7 +262,7 @@ def main_opportunity():
         log_time("Built CSV Rows", t0)
         t0 = time.time()
         log_time("Saved CSV File", t0)
-        logging.info(f"✅ Total Execution Time: {round(time.time() - total_start, 2)} seconds")
+        logging.info(f" Total Execution Time: {round(time.time() - total_start, 2)} seconds")
          
         return output_file
     else:
