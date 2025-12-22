@@ -6,11 +6,15 @@ import zipfile
 import io
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup 
-from urllib.parse import urlparse
+from urllib.parse import urlparse,parse_qs, unquote
 import os
 import yaml
 import logging
-
+ 
+ 
+ 
+ 
+ 
 # ==============================
 #  Logging Config
 # ==============================
@@ -43,7 +47,7 @@ REFRESH_TOKEN = env.get("REFRESH_TOKEN")
  
 
 # Graph API settings
-SCOPE = ['Mail.Read', 'User.Read'] # Corrected scope (offline_access removed)
+ 
 AUTHORITY = f'https://login.microsoftonline.com/{TENANT_ID}'
 INSIGHTLY_SENDER = 'notifications@insightly.com' 
 SUBJECT_FILTER = 'Insightly has finished exporting your report:' 
@@ -54,11 +58,15 @@ RENAMED_FILE = "Opp Stage Duration.xlsx"
  
 
  
- 
 def process_zip_data(file_content, original_filename, renamed_file_name):
     """
     Downloaded content ko temp folder mein save karta hai, rename karta hai, aur uska path return karta hai.
+    
     """
+    if not original_filename:
+        original_filename = "insightly_report.csv"
+    
+    
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
         
@@ -114,44 +122,57 @@ def process_zip_data(file_content, original_filename, renamed_file_name):
         return None
 
 
- 
+           
     
+
 def extract_download_link(token, message_id, session):
     """
-    Email body se Download Report link aur original filename extract karta hai (Using session).
+    Extract Download Report link and safely resolve filename
+    (handles Outlook SafeLinks + query params)
     """
     headers = {'Authorization': f'Bearer {token}'}
     body_url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}?$select=body"
-    
-    try:
-        # FIXED: session.get ka use
-        response = session.get(body_url, headers=headers) 
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as e:
-        logging.error(f"HTTP Error during fetching body: {e}")
+
+    response = session.get(body_url, headers=headers)
+    response.raise_for_status()
+
+    html_content = response.json().get('body', {}).get('content', '')
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    link_tag = soup.find('a', string=lambda t: t and 'Download Report' in t)
+    if not link_tag or 'href' not in link_tag.attrs:
+        logging.warning("Download Report link not found")
         return None, None
 
-    body_data = response.json().get('body', {})
-    html_content = body_data.get('content', '')
-    
-    soup = BeautifulSoup(html_content, 'html.parser')
-    link_tag = soup.find('a', string=lambda t: t and 'Download Report' in t)
-    
-    if link_tag and 'href' in link_tag.attrs:
-        download_link = link_tag['href']
-        logging.info(f"Extracted Download Link: {download_link}")
-        
-        parsed_url = urlparse(download_link)
-        path = parsed_url.path
-        original_filename = path.split('/')[-1]
-        
-        return download_link, original_filename 
+    download_link = link_tag['href']
+    logging.info(f"Extracted Download Link: {download_link}")
+
+    # ----------------------------------
+    # SAFE filename extraction
+    # ----------------------------------
+    parsed = urlparse(download_link)
+    query_params = parse_qs(parsed.query)
+
+    original_filename = None
+
+    # Case 1: Outlook SafeLinks
+    if "url" in query_params:
+        real_url = unquote(query_params["url"][0])
+        real_parsed = urlparse(real_url)
+        original_filename = os.path.basename(real_parsed.path)
+
+    # Case 2: Direct link
     else:
-        logging.warning("Error: 'Download Report' link not found in email body.")
-        return None, None
-    
-    
- 
+        original_filename = os.path.basename(parsed.path)
+
+    # Final hard safety (CRITICAL)
+    if not original_filename or "." not in original_filename:
+        original_filename = f"insightly_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+
+    logging.info(f"Resolved filename: {original_filename}")
+    return download_link, original_filename
+
+  
 
 def download_report_from_link(download_url, original_filename, renamed_file_name, session):
     """
@@ -175,7 +196,6 @@ def download_report_from_link(download_url, original_filename, renamed_file_name
     return final_path
     
      
-    
     
     
 def download_insightly_report(token,session):

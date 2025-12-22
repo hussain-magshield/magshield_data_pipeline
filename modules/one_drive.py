@@ -5,16 +5,99 @@ import requests
 import yaml
 import logging
 
-requests.packages.urllib3.disable_warnings(
-    requests.packages.urllib3.exceptions.InsecureRequestWarning
-)
+import time
+ 
+_COLD_START = True
+
+import requests
+
+def safe_request(
+    method,
+    url,
+    headers=None,
+    data=None,
+    params=None,
+    max_retries=5,
+    timeout=20
+):
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.request(
+                method=method,
+                url=url,
+                headers=headers,
+                data=data,
+                params=params,
+                timeout=timeout,
+                verify=False
+            )
+            return response
+
+        except requests.exceptions.ConnectionError as e:
+            last_error = e
+            sleep_time = min(2 ** attempt, 10)
+
+            logging.warning(
+                f"Network/DNS error calling {url}. "
+                f"Retry {attempt + 1}/{max_retries} in {sleep_time}s"
+            )
+            time.sleep(sleep_time)
+
+    raise last_error
+
+# def safe_request(
+#     method,
+#     url,
+#     headers=None,
+#     data=None,
+#     params=None,
+#     max_retries=5,
+#     timeout=20
+# ):
+#     """
+#     Azure-safe HTTP request with DNS retry & exponential backoff
+#     """
+#     last_error = None
+
+#     for attempt in range(max_retries):
+#         try:
+#             resp = requests.request(
+#                 method=method,
+#                 url=url,
+#                 headers=headers,
+#                 data=data,
+#                 params=params,
+#                 timeout=timeout,
+#                 verify=False  # SSL already handled earlier
+#             )
+#             return resp
+
+#         except requests.exceptions.ConnectionError as e:
+#             last_error = e
+#             sleep_time = 2 ** attempt
+#             logging.warning(
+#                 f"Network/DNS error calling {url}. "
+#                 f"Retry {attempt + 1}/{max_retries} in {sleep_time}s"
+#             )
+#             time.sleep(sleep_time)
+
+#     raise last_error
+
+
+# requests.packages.urllib3.disable_warnings(
+#     requests.packages.urllib3.exceptions.InsecureRequestWarning
+# )
  
 def get_driveitem_from_share_url(headers, share_url):
     b = base64.b64encode(share_url.encode("utf-8")).decode("utf-8")
     b = b.rstrip("=").replace("/", "_").replace("+", "-")
     share_token = "u!" + b
     endpoint = f"https://graph.microsoft.com/v1.0/shares/{share_token}/driveItem"
-    resp = requests.get(endpoint, headers=headers,verify=False)
+    # resp = requests.get(endpoint, headers=headers,verify=False)
+    resp = safe_request("GET", endpoint, headers=headers)
+
     if resp.status_code != 200:
         logging.error(f"Error fetching share: {resp.status_code} | {resp.text}")
         return None
@@ -29,7 +112,9 @@ def replace_file_on_onedrive(headers, drive_id, item_id, local_file_path):
 
     try:
         with open(local_file_path, "rb") as f:
-            resp = requests.put(upload_url, headers=headers, data=f,verify=False)
+            # resp = requests.put(upload_url, headers=headers, data=f,verify=False)
+            resp = safe_request("PUT",upload_url,headers=headers, data=f)
+
 
         if resp.status_code in [200, 201]:
             logging.info(f"Successfully replaced or uploaded: {file_name}")
@@ -46,6 +131,14 @@ def replace_file_on_onedrive(headers, drive_id, item_id, local_file_path):
 # ==========================
 def main_drive(share_links,token, upload_file=None):
     # token = get_access_token()
+    global _COLD_START
+
+    # 🔥 Cold-start DNS warm-up (runs ONCE per instance)
+    if _COLD_START:
+        logging.info("Cold start detected — warming network (2s)")
+        time.sleep(2)
+        _COLD_START = False
+        
     if not token:
         logging.error("Access token not acquired. Aborting upload.")
         return
