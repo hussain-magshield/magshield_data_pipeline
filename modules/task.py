@@ -120,6 +120,10 @@ def format_date_only(date_str):
 # ==============================
 def main_task():
     logging.info("Starting Task Export...")
+    
+    logging.info("Warming up Insightly connection...")
+    safe_get(f"{BASE_URL}/Users", params={"top": 1})
+    time.sleep(2)
 
     # ---------------------------------------
     # Step 1: Fetch all tasks
