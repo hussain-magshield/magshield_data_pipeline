@@ -32,78 +32,76 @@ def load_env_config(file_path="env.yaml"):
         with open(file_path, "r") as f:
             config = yaml.safe_load(f) or {}
 
-    for key in ["INSIGHTLY_API_KEY", "CLIENT_ID", "TENANT_ID", "REFRESH_TOKEN"]:
+    for key in ["INSIGHTLY_API_KEY", "CLIENT_ID", "TENANT_ID","CLIENT_SECRET"]:
         if os.environ.get(key):
             config[key] = os.environ.get(key)
     return config
 
 env = load_env_config()
 
-API_KEY = env.get("INSIGHTLY_API_KEY")
-CLIENT_ID = env.get("CLIENT_ID")
-TENANT_ID = env.get("TENANT_ID")
-REFRESH_TOKEN = env.get("REFRESH_TOKEN")
  
 
+ 
+
+ 
+
+ 
+
+
+
+TENANT_ID = env.get("TENANT_ID")
+CLIENT_ID = env.get("CLIENT_ID")
+
+CLIENT_SECRET = env.get("CLIENT_SECRET")
+
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPES = ["Files.ReadWrite.All", "Sites.Read.All", "User.Read"]
+SCOPES = ["https://graph.microsoft.com/.default"]
 
 ACCESS_TOKEN = None
 SESSION = None
 
-
-
-
-def get_access_token_via_refresh_token(refresh_token):
-    """
-    Refresh token ka use karke naya access token acquire karta hai.
-    SSL error ko handle karne ke liye session.verify=False use kiya gaya hai.
-    """
-    
-   
-    session = requests.Session()
-     
-    requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
-    session.verify = False 
-
-    
-    app = msal.PublicClientApplication(
-        CLIENT_ID, 
+def get_access_token_client_credentials():
+    app = msal.ConfidentialClientApplication(
+        CLIENT_ID,
         authority=AUTHORITY,
-        http_client=session   
-    ) 
-    
-    logging.info("Acquiring new access token using refresh token...")
-    
-    try:
-        result = app.acquire_token_by_refresh_token(
-            refresh_token,
-            scopes=SCOPES 
-        )
-    except Exception as e:
-        logging.critical(f"MSAL Exception during token acquisition: {e}")
-        raise
+        client_credential=CLIENT_SECRET
+    )
 
-    if 'access_token' in result:
-        # Naya: Token ke saath session object bhi return karein
-        return result['access_token'], session 
+    result = app.acquire_token_for_client(scopes=SCOPES)
+
+    if "access_token" in result:
+        return result["access_token"]
     else:
-        logging.error(f"Authentication failed: {result.get('error_description', 'Unknown error')}")
-        raise Exception("Authentication failed.")
+        logging.error(result.get("error_description"))
+        raise Exception("Failed to get access token (client credentials).")
+        
+        
+# def init_token_once():
+#     global ACCESS_TOKEN, SESSION
 
- 
+#     if not ACCESS_TOKEN:
+#         ACCESS_TOKEN = get_access_token_client_credentials()
 
+#         SESSION = requests.Session()
+#         SESSION.verify = False   # keep same SSL behavior as before
 
+#         logging.info("Token + SESSION initialized using client credentials.") 
+        
 def init_token_once():
     global ACCESS_TOKEN, SESSION
-    
-    if ACCESS_TOKEN is None:
-        ACCESS_TOKEN, SESSION = get_access_token_via_refresh_token(REFRESH_TOKEN)
-        logging.info(" Token initialized ONCE for all final() calls.")
-    else:
-        logging.info(" Token already initialized. Reusing existing session.")
-        
-        
+
+    ACCESS_TOKEN = get_access_token_client_credentials()
+
+    if not ACCESS_TOKEN:
+        raise Exception("ACCESS TOKEN IS EMPTY")
+
+    SESSION = requests.Session()
+    SESSION.verify = False
+
+    logging.info("Token + SESSION initialized using client credentials.")
+    logging.info(f"Token length: {len(ACCESS_TOKEN)}")
+
+
 
 share_links = [
     

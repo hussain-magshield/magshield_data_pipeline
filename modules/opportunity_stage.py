@@ -1,301 +1,141 @@
 import requests
-import msal 
 import pandas as pd
 import os
-import zipfile
-import io
-from datetime import datetime, timedelta
-from bs4 import BeautifulSoup 
-from urllib.parse import urlparse,parse_qs, unquote
-import os
-import yaml
+import base64
 import logging
- 
- 
- 
- 
- 
+from datetime import datetime, timedelta
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, parse_qs, unquote
+
 # ==============================
-#  Logging Config
+# CONFIG
 # ==============================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
 
-def load_env_config(file_path="env.yaml"):
-    """
-    Local development ke liye env.yaml read karega
-    Production (Azure) mein env variable se read karega
-    """
-    config = {}
-    if os.path.exists(file_path):
-        with open(file_path, "r") as f:
-            config = yaml.safe_load(f) or {}
-
-    for key in ["INSIGHTLY_API_KEY", "CLIENT_ID", "TENANT_ID", "REFRESH_TOKEN"]:
-        if os.environ.get(key):
-            config[key] = os.environ.get(key)
-    return config
-
-env = load_env_config()
-
- 
-CLIENT_ID = env.get("CLIENT_ID")
-TENANT_ID = env.get("TENANT_ID")
-REFRESH_TOKEN = env.get("REFRESH_TOKEN")
- 
-
-# Graph API settings
- 
-AUTHORITY = f'https://login.microsoftonline.com/{TENANT_ID}'
-INSIGHTLY_SENDER = 'notifications@insightly.com' 
-SUBJECT_FILTER = 'Insightly has finished exporting your report:' 
-OUTPUT_DIR = "/tmp" 
- 
-
+MAILBOX = "hussainm@magshield.com"   # <-- CHANGE if needed
+INSIGHTLY_SENDER = "notifications@insightly.com"
+TARGET_REPORT_NAME = "Insightly - Opportunity Stage Duration Export"
 RENAMED_FILE = "Opp Stage Duration.xlsx"
- 
+OUTPUT_DIR = "/tmp"
 
- 
-def process_zip_data(file_content, original_filename, renamed_file_name):
-    """
-    Downloaded content ko temp folder mein save karta hai, rename karta hai, aur uska path return karta hai.
-    
-    """
-    if not original_filename:
-        original_filename = "insightly_report.csv"
-    
-    
+# ==============================
+# HELPERS
+# ==============================
+
+def process_file(file_content, original_filename):
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
-        
-    
-    initial_path = os.path.join(OUTPUT_DIR, original_filename)
-    
-    try:
-        with open(initial_path, 'wb') as f:
-            f.write(file_content)
-        
-        logging.info(f"Report downloaded successfully to: {initial_path}")
-        
-        if original_filename.lower().endswith(".xlsx"):
-            final_path = os.path.join(OUTPUT_DIR, f"{renamed_file_name}.xlsx")
 
-            if os.path.exists(final_path):
-                os.remove(final_path)
+    temp_path = os.path.join(OUTPUT_DIR, original_filename)
 
-            os.rename(initial_path, final_path)
-            return final_path
-        
-        if original_filename.lower().endswith(".csv"):
+    with open(temp_path, "wb") as f:
+        f.write(file_content)
 
-            # Final Excel path (renamed_file_name should end with .xlsx)
-            final_path = os.path.join(OUTPUT_DIR, renamed_file_name)
+    final_path = os.path.join(OUTPUT_DIR, RENAMED_FILE)
 
-            # Remove existing Excel file if exists
-            if os.path.exists(final_path):
-                os.remove(final_path)
+    if original_filename.lower().endswith(".csv"):
+        df = pd.read_csv(temp_path)
+        df.to_excel(final_path, index=False)
+        os.remove(temp_path)
+    else:
+        if os.path.exists(final_path):
+            os.remove(final_path)
+        os.rename(temp_path, final_path)
 
-            # --- NEW: Convert CSV → Excel ---
-            try:
-                import pandas as pd
-                df = pd.read_csv(initial_path)     # read CSV
-                df.to_excel(final_path, index=False)   # write Excel
+    logging.info(f"Saved report: {final_path}")
+    return final_path
 
-                logging.info(f"CSV converted to Excel: {final_path}")
-            except Exception as e:
-                logging.error(f"Error converting CSV to Excel: {e}")
-                return None
-            finally:
-                # delete original CSV
-                try:
-                    os.remove(initial_path)
-                except:
-                    pass
-
-            return final_path
-         
-        
-    except Exception as e:
-        logging.error(f"Error saving or renaming file: {e}")
-        return None
-
-
-           
-    
 
 def extract_download_link(token, message_id, session):
-    """
-    Extract Download Report link and safely resolve filename
-    (handles Outlook SafeLinks + query params)
-    """
-    headers = {'Authorization': f'Bearer {token}'}
-    body_url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}?$select=body"
+    headers = {"Authorization": f"Bearer {token}"}
 
-    response = session.get(body_url, headers=headers)
-    response.raise_for_status()
+    body_url = f"https://graph.microsoft.com/v1.0/users/{MAILBOX}/messages/{message_id}?$select=body"
 
-    html_content = response.json().get('body', {}).get('content', '')
-    soup = BeautifulSoup(html_content, 'html.parser')
+    resp = session.get(body_url, headers=headers, verify=False)
+    resp.raise_for_status()
 
-    link_tag = soup.find('a', string=lambda t: t and 'Download Report' in t)
-    if not link_tag or 'href' not in link_tag.attrs:
-        logging.warning("Download Report link not found")
+    html = resp.json()["body"]["content"]
+    soup = BeautifulSoup(html, "html.parser")
+
+    link = soup.find("a", string=lambda t: t and "Download Report" in t)
+
+    if not link:
         return None, None
 
-    download_link = link_tag['href']
-    logging.info(f"Extracted Download Link: {download_link}")
+    download_url = link["href"]
 
-    # ----------------------------------
-    # SAFE filename extraction
-    # ----------------------------------
-    parsed = urlparse(download_link)
-    query_params = parse_qs(parsed.query)
+    parsed = urlparse(download_url)
+    params = parse_qs(parsed.query)
 
-    original_filename = None
-
-    # Case 1: Outlook SafeLinks
-    if "url" in query_params:
-        real_url = unquote(query_params["url"][0])
-        real_parsed = urlparse(real_url)
-        original_filename = os.path.basename(real_parsed.path)
-
-    # Case 2: Direct link
+    if "url" in params:
+        real = unquote(params["url"][0])
+        filename = os.path.basename(urlparse(real).path)
     else:
-        original_filename = os.path.basename(parsed.path)
+        filename = os.path.basename(parsed.path)
 
-    # Final hard safety (CRITICAL)
-    if not original_filename or "." not in original_filename:
-        original_filename = f"insightly_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    if not filename:
+        filename = "insightly_report.csv"
 
-    logging.info(f"Resolved filename: {original_filename}")
-    return download_link, original_filename
+    return download_url, filename
 
-  
 
-def download_report_from_link(download_url, original_filename, renamed_file_name, session):
-    """
-    Extracted link ka use karke file download karta hai (Using session).
-    """
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*'
-    }
-    
-    try:
-         
-        download_response = session.get(download_url, stream=True, headers=headers) 
-        download_response.raise_for_status()
-    except requests.exceptions.HTTPError as e:
-        logging.error(f"HTTP Error during download (Check link expiry/403 Forbidden): {e}")
-        return None
-    
-    final_path = process_zip_data(download_response.content, original_filename, renamed_file_name)
-    
-    return final_path
-    
-     
-    
-    
-def download_insightly_report(token,session):
-    
-    
-    headers = {'Authorization': f'Bearer {token}'}
-    
-     
-    last_date_to_check = datetime.now() - timedelta(days=15) 
-    filter_date_clean = last_date_to_check.replace(microsecond=0).isoformat() + 'Z'
-    
-    
-    filter_string = (
-        f"receivedDateTime ge {filter_date_clean} and "
-        f"sender/emailAddress/address eq '{INSIGHTLY_SENDER}'"
-    )
-    
+def download_from_link(url, filename, session):
+    r = session.get(url, stream=True, verify=False)
+    r.raise_for_status()
+
+    return process_file(r.content, filename)
+
+
+# ==============================
+# MAIN WORKFLOW
+# ==============================
+
+def download_insightly_report(token, session):
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    since = (datetime.utcnow() - timedelta(days=15)).replace(microsecond=0).isoformat() + "Z"
+
     search_url = (
-        f"https://graph.microsoft.com/v1.0/me/messages?"
-        f"$filter={filter_string}"
-        f"&$orderby=receivedDateTime desc" 
-        f"&$top=3" 
+        f"https://graph.microsoft.com/v1.0/users/{MAILBOX}/messages"
+        f"?$filter=receivedDateTime ge {since} and sender/emailAddress/address eq '{INSIGHTLY_SENDER}'"
+        f"&$orderby=receivedDateTime desc"
+        f"&$top=5"
     )
-    
-   
+
     logging.info(f"Searching URL: {search_url}")
-    
-     
-    
-    try:
-        
-        response = session.get(search_url, headers=headers) 
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as e:
-        logging.error(f"HTTP Error during search: {e}")
-        return
 
+    resp = session.get(search_url, headers=headers, verify=False)
+    resp.raise_for_status()
 
-    messages = response.json().get('value', [])
-     
-    logging.info(f"Messages found: {len(messages)}")
-    
-    
+    messages = resp.json().get("value", [])
+
     if not messages:
-        logging.info("No new Insightly report email found in the last 10 days matching the sender.")
-        
-        return
+        logging.warning("No Insightly emails found.")
+        return None
 
-     
-    TARGET_REPORT_NAME = 'Insightly - Opportunity Stage Duration Export'
-    
-     
-    target_report_found = None
-    logging.info(f"\nFiltering for report: '{TARGET_REPORT_NAME}'")
-    
-    
+    target = None
+    for m in messages:
+        if TARGET_REPORT_NAME in m.get("subject", ""):
+            target = m
+            break
 
-    for message in messages:
-        subject = message.get('subject', '')
-        
-        
-        if TARGET_REPORT_NAME in subject:
-             target_report_found = message
-             logging.info(f"SUCCESS: Found target report in subject: {subject}")
-             
-             break
-        
-        
+    if not target:
+        logging.warning("Target report email not found.")
+        return None
 
-    if not target_report_found:
-        logging.info(f"ERROR: Report '{TARGET_REPORT_NAME}' not found in the fetched emails.")
-        
-        return
- 
-    message_id = target_report_found['id']
-    logging.info(f"Final Message ID for download: {message_id}")
-    logging.info(f"message: {target_report_found}")
-      
-   
-    download_link, filename = extract_download_link(token, message_id,session)
-    renamed_file = RENAMED_FILE  
-    
-    final_report_path = None
-    
-    if download_link:
-        final_report_path = download_report_from_link(download_link, filename, renamed_file,session)
-    
-        
-    else:
-        logging.info("Download process terminated as link could not be extracted.")
-       
-        
-        
-    return final_report_path    
+    message_id = target["id"]
 
- 
+    download_link, filename = extract_download_link(token, message_id, session)
+
+    if not download_link:
+        logging.error("Download link not found.")
+        return None
+
+    return download_from_link(download_link, filename, session)
+
+
 def main_opp_stage(access_token, session):
-    
-    # access_token, session = get_access_token_via_refresh_token(REFRESH_TOKEN)
-    data=download_insightly_report(access_token,session)     
-    logging.info(f"Final downloaded report path: {data}") 
-    return data  
+    path = download_insightly_report(access_token, session)
+    logging.info(f"Final downloaded report path: {path}")
+    return path
     

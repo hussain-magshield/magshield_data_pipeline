@@ -29,7 +29,7 @@ def load_env_config(file_path="env.yaml"):
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
             config = yaml.safe_load(f) or {}
-    for key in ["INSIGHTLY_API_KEY", "CLIENT_ID", "TENANT_ID", "REFRESH_TOKEN"]:
+    for key in ["INSIGHTLY_API_KEY", "CLIENT_ID", "TENANT_ID"]:
         if os.environ.get(key):
             config[key] = os.environ.get(key)
     return config

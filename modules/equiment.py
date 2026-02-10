@@ -26,7 +26,7 @@ def load_env_config(file_path="env.yaml"):
         with open(file_path, "r") as f:
             config = yaml.safe_load(f) or {}
 
-    for key in ["INSIGHTLY_API_KEY", "CLIENT_ID", "TENANT_ID", "REFRESH_TOKEN"]:
+    for key in ["INSIGHTLY_API_KEY", "CLIENT_ID", "TENANT_ID"]:
         if os.environ.get(key):
             config[key] = os.environ.get(key)
     return config
@@ -36,7 +36,7 @@ env = load_env_config()
 API_KEY = env.get("INSIGHTLY_API_KEY")
 CLIENT_ID = env.get("CLIENT_ID")
 TENANT_ID = env.get("TENANT_ID")
-REFRESH_TOKEN = env.get("REFRESH_TOKEN")
+ 
 
 BASE_URL = "https://api.na1.insightly.com/v3.1"
 auth = HTTPBasicAuth(API_KEY, "")

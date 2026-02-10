@@ -29,7 +29,7 @@ def load_env_config(file_path="env.yaml"):
             config = yaml.safe_load(f) or {}
 
     # 2. Environment variables (Azure)
-    for key in ["INSIGHTLY_API_KEY", "CLIENT_ID", "TENANT_ID", "REFRESH_TOKEN"]:
+    for key in ["INSIGHTLY_API_KEY", "CLIENT_ID", "TENANT_ID"]:
         if os.environ.get(key):
             config[key] = os.environ.get(key)
 
