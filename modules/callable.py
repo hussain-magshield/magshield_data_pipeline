@@ -76,16 +76,7 @@ def get_access_token_client_credentials():
         raise Exception("Failed to get access token (client credentials).")
         
         
-# def init_token_once():
-#     global ACCESS_TOKEN, SESSION
-
-#     if not ACCESS_TOKEN:
-#         ACCESS_TOKEN = get_access_token_client_credentials()
-
-#         SESSION = requests.Session()
-#         SESSION.verify = False   # keep same SSL behavior as before
-
-#         logging.info("Token + SESSION initialized using client credentials.") 
+ 
         
 def init_token_once():
     global ACCESS_TOKEN, SESSION
