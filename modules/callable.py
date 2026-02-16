@@ -151,5 +151,6 @@ def final4():
     upload_if_file_exists(task_file, "Task")
 
 def final5():
-    opportunity_stage = main_opp_stage(ACCESS_TOKEN, SESSION)        
+    opportunity_stage = main_opp_stage(ACCESS_TOKEN, SESSION)  
+    print(f"Opportunity Stage file path: {opportunity_stage}")      
     upload_if_file_exists(opportunity_stage, "Opportunity Stage")
