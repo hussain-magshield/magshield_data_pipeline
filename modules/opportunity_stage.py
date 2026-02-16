@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, unquote
-
+import io
 # ==============================
 # CONFIG
 # ==============================
@@ -15,35 +15,72 @@ MAILBOX = "hussainm@magshield.com"   # <-- CHANGE if needed
 INSIGHTLY_SENDER = "notifications@insightly.com"
 TARGET_REPORT_NAME = "Insightly - Opportunity Stage Duration Export"
 RENAMED_FILE = "Opp Stage Duration.xlsx"
-OUTPUT_DIR = "/tmp"
-
+# OUTPUT_DIR = "/tmp"
+OUTPUT_DIR = "modules/tmp"
 # ==============================
 # HELPERS
 # ==============================
+
+# def process_file(file_content, original_filename):
+#     if not os.path.exists(OUTPUT_DIR):
+#         os.makedirs(OUTPUT_DIR)
+
+#     temp_path = os.path.join(OUTPUT_DIR, original_filename)
+
+#     with open(temp_path, "wb") as f:
+#         f.write(file_content)
+
+#     final_path = os.path.join(OUTPUT_DIR, RENAMED_FILE)
+
+#     if original_filename.lower().endswith(".csv"):
+#         df = pd.read_csv(temp_path)
+#         # df.to_excel(final_path, index=False)
+#         df.to_excel(final_path, index=False, engine="openpyxl")
+#         os.remove(temp_path)
+#     else:
+#         if os.path.exists(final_path):
+#             os.remove(final_path)
+#         os.rename(temp_path, final_path)
+
+#     logging.info(f"Saved report: {final_path}")
+#     return final_path
+
+
 
 def process_file(file_content, original_filename):
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 
-    temp_path = os.path.join(OUTPUT_DIR, original_filename)
-
-    with open(temp_path, "wb") as f:
-        f.write(file_content)
-
     final_path = os.path.join(OUTPUT_DIR, RENAMED_FILE)
 
-    if original_filename.lower().endswith(".csv"):
-        df = pd.read_csv(temp_path)
-        df.to_excel(final_path, index=False)
+    # Try reading as CSV first
+    try:
+        decoded = file_content.decode("utf-8")
+        if decoded.startswith('"') or "," in decoded[:200]:
+            df = pd.read_csv(io.StringIO(decoded))
+            df.to_excel(final_path, index=False, engine="openpyxl")
+            logging.info("CSV detected and converted to Excel.")
+            logging.info(f"Saved report: {final_path}")
+            return final_path
+    except Exception:
+        pass
+
+    # If not CSV, try Excel
+    try:
+        temp_path = os.path.join(OUTPUT_DIR, original_filename)
+        with open(temp_path, "wb") as f:
+            f.write(file_content)
+
+        df = pd.read_excel(temp_path)
+        df.to_excel(final_path, index=False, engine="openpyxl")
         os.remove(temp_path)
-    else:
-        if os.path.exists(final_path):
-            os.remove(final_path)
-        os.rename(temp_path, final_path)
 
-    logging.info(f"Saved report: {final_path}")
-    return final_path
-
+        logging.info("Excel file validated and resaved.")
+        logging.info(f"Saved report: {final_path}")
+        return final_path
+    except Exception:
+        raise Exception("Downloaded file is neither valid CSV nor valid Excel.")
+ 
 
 def extract_download_link(token, message_id, session):
     headers = {"Authorization": f"Bearer {token}"}
@@ -81,6 +118,8 @@ def extract_download_link(token, message_id, session):
 def download_from_link(url, filename, session):
     r = session.get(url, stream=True, verify=False)
     r.raise_for_status()
+    print("Content-Type:", r.headers.get("Content-Type"))
+    print("First 200 chars:", r.text[:200])
 
     return process_file(r.content, filename)
 
@@ -137,6 +176,5 @@ def download_insightly_report(token, session):
 def main_opp_stage(access_token, session):
     path = download_insightly_report(access_token, session)
     logging.info(f"Final downloaded report path: {path}")
-    # print(path)
     return path
     
