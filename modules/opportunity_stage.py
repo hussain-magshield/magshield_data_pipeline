@@ -15,8 +15,8 @@ MAILBOX = "hussainm@magshield.com"   # <-- CHANGE if needed
 INSIGHTLY_SENDER = "notifications@insightly.com"
 TARGET_REPORT_NAME = "Insightly - Opportunity Stage Duration Export"
 RENAMED_FILE = "Opp Stage Duration.xlsx"
-# OUTPUT_DIR = "/tmp"
-OUTPUT_DIR = "modules/tmp"
+OUTPUT_DIR = "/tmp"
+# OUTPUT_DIR = "modules/tmp"
 # ==============================
 # HELPERS
 # ==============================
